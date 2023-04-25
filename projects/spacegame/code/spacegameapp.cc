@@ -19,7 +19,7 @@
 #include "core/cvar.h"
 #include "render/physics.h"
 #include <chrono>
-#include "spaceship.h"
+#include "laser.h"
 
 using namespace Display;
 using namespace Render;
@@ -73,7 +73,20 @@ SpaceGameApp::Open()
 	App::Open();
 	this->window = new Display::Window;
     this->window->SetSize(600, 450);
+    if (!this->window->Open())
+        return false;
 
+    // set clear color to gray
+    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+    RenderDevice::Init();
+
+    // set ui rendering function
+    this->window->SetUiRender([this]()
+    {
+        this->RenderUI();
+    });
+
+    // setup console commands
     InitializeENet();
     this->host = nullptr;
 
@@ -107,7 +120,7 @@ SpaceGameApp::Open()
     });
     this->console->SetCommand("msg", [this](const std::string& arg) 
     {
-        if (this->host == nullptr || this->host->type == HostType::Server)
+        if (this->host == nullptr || this->host->type != HostType::Client)
             return;
 
         Client* client = dynamic_cast<Client*>(this->host);
@@ -117,22 +130,13 @@ SpaceGameApp::Open()
         client->SendData((void*)arg.c_str(), arg.size()+1, client->server);
     });
 
-    if (this->window->Open())
-	{
-		// set clear color to gray
-		glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+    // setup ships
+    SpaceShips::InitSpawnPoints();
+    ModelId shipModelId = LoadModel("assets/space/spaceship.glb");
+    this->ship = SpaceShips::SpawnSpaceShip(shipModelId);
+    SpaceShips::SpawnSpaceShip(shipModelId);
 
-        RenderDevice::Init();
-
-		// set ui rendering function
-		this->window->SetUiRender([this]()
-		{
-			this->RenderUI();
-		});
-        
-        return true;
-	}
-	return false;
+    return true;
 }
 
 //------------------------------------------------------------------------------
@@ -241,8 +245,7 @@ SpaceGameApp::Run()
         lights[i] = Render::LightServer::CreatePointLight(translation, color, Core::RandomFloat() * 4.0f, 1.0f + (15 + Core::RandomFloat() * 10.0f));
     }
 
-    SpaceShip ship;
-    ship.model = LoadModel("assets/space/spaceship.glb");
+    ModelId laserId = LoadModel("assets/space/laser.glb");
 
     std::clock_t c_start = std::clock();
     double dt = 0.01667f;
@@ -251,36 +254,26 @@ SpaceGameApp::Run()
     while (this->window->IsOpen())
 	{
         auto timeStart = std::chrono::steady_clock::now();
+        uint64 currentTimeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(timeStart.time_since_epoch()).count();
+
 		glClear(GL_DEPTH_BUFFER_BIT);
 		glEnable(GL_DEPTH_TEST);
 		glEnable(GL_CULL_FACE);
 		glCullFace(GL_BACK);
         
         this->window->Update();
-
-        if (this->host != nullptr)
-        {
-            this->host->Update();
-            Data d;
-            while (this->host->PopDataStack(d))
-            {
-                for (auto& c : *d.data.get())
-                    printf("%c", (char)c);
-
-                printf("\n");
-            }
-        }
+        this->UpdateHost();
 
         if (kbd->pressed[Input::Key::Code::End])
         {
             ShaderResource::ReloadShaders();
         }
+        if (kbd->pressed[Input::Key::Code::Space])
+        {
+            Lasers::AddLaser(Laser(*this->ship.get(), currentTimeMillis, laserId));
+        }
 
-        ship.Update(dt);
-        ship.CheckCollisions();
-
-        // Draw some debug text
-        Debug::DrawDebugText("FOOBAR", glm::vec3(0), {1,0,0,1});
+        ship->ControlShip(dt);
 
         // Store all drawcalls in the render device
         for (auto const& asteroid : asteroids)
@@ -288,7 +281,8 @@ SpaceGameApp::Run()
             RenderDevice::Draw(std::get<0>(asteroid), std::get<2>(asteroid));
         }
 
-        RenderDevice::Draw(ship.model, ship.transform);
+        Lasers::UpdateAndDrawLasers(currentTimeMillis);
+        SpaceShips::UpdateAndDrawSpaceShips(dt);
 
         // Execute the entire rendering pipeline
         RenderDevice::Render(this->window, dt);
@@ -300,7 +294,7 @@ SpaceGameApp::Run()
         dt = std::min(0.04, std::chrono::duration<double>(timeEnd - timeStart).count());
 
         if (kbd->pressed[Input::Key::Code::Escape])
-            this->Exit();
+            break;
 	}
 }
 
@@ -310,6 +304,8 @@ SpaceGameApp::Run()
 void
 SpaceGameApp::Exit()
 {
+    SpaceShips::spaceShips.clear();
+
     this->window->Close();
     delete this->window;
     delete this->console;
@@ -342,6 +338,49 @@ SpaceGameApp::RenderUI()
 
         Debug::DispatchDebugTextDrawing();
 	}
+}
+
+void SpaceGameApp::UpdateHost()
+{
+    if (this->host == nullptr)
+        return;
+
+    this->host->Update();
+
+    struct Protocol
+    {
+        glm::vec3 pos;
+        glm::vec3 vel;
+    };
+
+    if (this->host->type == HostType::Client)
+    {
+        Client* client = dynamic_cast<Client*>(this->host);
+        if (client->server == nullptr)
+            return;
+
+        Protocol data
+        {
+            this->ship->position,
+            this->ship->linearVelocity
+        };
+
+        client->SendData((void*)&data, sizeof(Protocol), client->server);
+    }
+    else
+    {
+        Data d;
+        while (this->host->PopDataStack(d))
+        {
+            /*for (auto& c : *d.data.get())
+            {
+                printf("%c", (char)c);
+            }*/
+
+            Protocol data = *(Protocol*)(&d.data->front());
+            printf("pos: (%f, %f, %f), vel: (%f, %f, %f)\n", data.pos.x, data.pos.y, data.pos.z, data.vel.x, data.vel.y, data.vel.z);
+        }
+    }
 }
 
 } // namespace Game

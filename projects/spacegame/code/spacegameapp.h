@@ -10,6 +10,7 @@
 #include "render/window.h"
 #include "console.h"
 #include "network.h"
+#include "spaceship.h"
 
 namespace Game
 {
@@ -32,8 +33,11 @@ private:
 	/// show some ui things
 	void RenderUI();
 
+	void UpdateHost();
+
 	Display::Window* window;
 	Console* console;
 	Host* host;
+	std::shared_ptr<SpaceShip> ship;
 };
 } // namespace Game

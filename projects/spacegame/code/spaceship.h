@@ -1,5 +1,6 @@
 #pragma once
 #include "render/model.h"
+#include <memory>
 
 namespace Render
 {
@@ -12,6 +13,7 @@ namespace Game
 struct SpaceShip
 {
     SpaceShip();
+    ~SpaceShip();
     
     glm::vec3 position = glm::vec3(0);
     glm::quat orientation = glm::identity<glm::quat>();
@@ -37,9 +39,12 @@ struct SpaceShip
     Render::ParticleEmitter* particleEmitterRight;
     float emitterOffset = -0.5f;
 
-    void Update(float dt);
+    int id = 0;
+    bool isHitByLaser = false;
 
     bool CheckCollisions();
+    void ControlShip(float dt);
+    void Update(float dt);
     
     const glm::vec3 colliderEndPoints[8] = {
         glm::vec3(-1.10657, -0.480347, -0.346542),  // right wing
@@ -53,4 +58,19 @@ struct SpaceShip
     };
 };
 
+}
+
+namespace SpaceShips
+{
+    extern int nextId;
+    extern std::vector<std::shared_ptr<Game::SpaceShip>> spaceShips;
+    extern float shipCollisionRadiusSquared;
+    extern glm::vec3 spawnPoints[32];
+
+    void InitSpawnPoints();
+    std::shared_ptr<Game::SpaceShip> SpawnSpaceShip(Render::ModelId model);
+    void DespawnSpaceShip(size_t index);
+    void RegisterHitOnShip(size_t index);
+    void RespawnShip(size_t index);
+    void UpdateAndDrawSpaceShips(float deltaTime);
 }
