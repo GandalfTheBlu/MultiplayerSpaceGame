@@ -1,0 +1,114 @@
+namespace Protocol;
+
+struct Vec3 {
+	x:float32;
+	y:float32;
+	z:float32;
+}
+
+struct Vec4 {
+	x:float32;
+	y:float32;
+	z:float32;
+	w:float32;
+}
+
+struct Laser {
+	uuid:uint32; // Unique universal identifier of the laser.
+	start_time:uint64; // The UNIX time in ms when the laser was created.
+	end_time:uint64; // The UNIX time in ms when the laser should die.
+	origin:Vec3; // Origin position of the laser.
+	direction:Vec4; // The quaternion direction of the laser.
+}
+
+struct Player {
+	uuid:uint32; // Unique universal identifier of the laser.
+	position:Vec3; // The current position of the player.
+	velocity:Vec3; // The current velocity of the player.
+	acceleration:Vec3; // The current acceleration of the player.
+	direction:Vec4; // The current quaternion direction of the player.
+}
+
+union PacketType {
+	InputC2S,
+	TextC2S,
+	ClientConnectS2C,
+	GameStateS2C,
+	SpawnPlayerS2C,
+	DespawnPlayerS2C,
+	UpdatePlayerS2C,
+	TeleportPlayerS2C,
+	SpawnLaserS2C,
+	DespawnLaserS2C,
+	CollisionS2C,
+	TextS2C
+}
+
+table PacketWrapper {
+	packet:PacketType;
+}
+
+
+
+/**
+ * Server To Client (S2C)
+ */
+
+table ClientConnectS2C {
+	uuid:uint32;
+}
+
+table GameStateS2C {
+	players:[Player];
+	lasers:[Laser];
+}
+
+table SpawnPlayerS2C {
+	player:Player;
+}
+
+table DespawnPlayerS2C {
+	uuid:uint32;
+}
+
+table UpdatePlayerS2C {
+	time:uint64;
+	player:Player;
+}
+
+table TeleportPlayerS2C {
+	time:uint64;
+	player:Player;
+}
+
+table SpawnLaserS2C {
+	laser:Laser;
+}
+
+table DespawnLaserS2C {
+	uuid:uint32;
+}
+
+table CollisionS2C {
+	uuid_first:uint32;
+	uuid_second:uint32;
+}
+
+table TextS2C {
+	text:string;
+}
+
+/**
+ * Client To Server (C2S)
+ */
+
+table InputC2S {
+	time:uint64;
+	bitmap:uint16;
+}
+
+table TextC2S {
+	text:string;
+}
+
+root_type PacketWrapper;

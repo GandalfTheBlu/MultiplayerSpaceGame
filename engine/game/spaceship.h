@@ -1,6 +1,4 @@
 #pragma once
-#include "render/model.h"
-#include <memory>
 
 namespace Render
 {
@@ -10,11 +8,21 @@ namespace Render
 namespace Game
 {
 
+struct InputData
+{
+    bool w, a, d, up, down, left, right, space, shift;
+    uint64 timeStamp;
+
+    InputData();
+};
+
 struct SpaceShip
 {
     SpaceShip();
     ~SpaceShip();
     
+    InputData inputData;
+
     glm::vec3 position = glm::vec3(0);
     glm::quat orientation = glm::identity<glm::quat>();
     glm::vec3 camPos = glm::vec3(0, 1.0f, -2.0f);
@@ -34,16 +42,16 @@ struct SpaceShip
     float rotYSmooth = 0;
     float rotZSmooth = 0;
 
-    Render::ModelId model;
     Render::ParticleEmitter* particleEmitterLeft;
     Render::ParticleEmitter* particleEmitterRight;
     float emitterOffset = -0.5f;
 
-    int id = 0;
+    uint32 id = 0;
     bool isHitByLaser = false;
 
     bool CheckCollisions();
-    void ControlShip(float dt);
+    void CompareAndSetImputData(const InputData& data);
+    void FollowThisWithCamera(float dt);
     void Update(float dt);
     
     const glm::vec3 colliderEndPoints[8] = {
@@ -57,20 +65,4 @@ struct SpaceShip
         glm::vec3(0.279064, -0.10917, -0.98846)   // right back
     };
 };
-
-}
-
-namespace SpaceShips
-{
-    extern int nextId;
-    extern std::vector<std::shared_ptr<Game::SpaceShip>> spaceShips;
-    extern float shipCollisionRadiusSquared;
-    extern glm::vec3 spawnPoints[32];
-
-    void InitSpawnPoints();
-    std::shared_ptr<Game::SpaceShip> SpawnSpaceShip(Render::ModelId model);
-    void DespawnSpaceShip(size_t index);
-    void RegisterHitOnShip(size_t index);
-    void RespawnShip(size_t index);
-    void UpdateAndDrawSpaceShips(float deltaTime);
 }

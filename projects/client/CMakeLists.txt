@@ -10,6 +10,7 @@ SET(files_project ${project_headers} ${project_sources})
 SOURCE_GROUP("client" FILES ${files_project})
 
 ADD_EXECUTABLE(client ${files_project})
+TARGET_INCLUDE_DIRECTORIES(client PRIVATE "${CMAKE_SOURCE_DIR}/build/generated/falt")
 TARGET_LINK_LIBRARIES(client core render game)
 ADD_DEPENDENCIES(client core render game)
 

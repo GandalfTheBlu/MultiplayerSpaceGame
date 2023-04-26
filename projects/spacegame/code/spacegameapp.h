@@ -33,11 +33,6 @@ private:
 	/// show some ui things
 	void RenderUI();
 
-	void UpdateHost();
-
 	Display::Window* window;
-	Console* console;
-	Host* host;
-	std::shared_ptr<SpaceShip> ship;
 };
 } // namespace Game

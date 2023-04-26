@@ -8,8 +8,10 @@ FILE(GLOB project_sources code/*.cc)
 
 SET(files_project ${project_headers} ${project_sources})
 SOURCE_GROUP("spacegame" FILES ${files_project})
+SET(files_proto)
+FLAT_COMPILE(proto.fbs)
 
-ADD_EXECUTABLE(spacegame ${files_project})
+ADD_EXECUTABLE(spacegame ${files_project} ${files_proto})
 TARGET_LINK_LIBRARIES(spacegame core render game)
 ADD_DEPENDENCIES(spacegame core render game)
 

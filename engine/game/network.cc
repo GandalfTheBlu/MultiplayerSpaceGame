@@ -1,6 +1,8 @@
 #include "config.h"
 #include "network.h"
 
+namespace Game
+{
 bool InitializeENet()
 {
 	if (enet_initialize() != 0)
@@ -11,7 +13,6 @@ bool InitializeENet()
 	atexit(enet_deinitialize);
 	return true;
 }
-
 
 // --- data ---
 
@@ -42,12 +43,12 @@ Data& Data::operator=(const Data& other)
 	return *this;
 }
 
-Data::~Data(){}
+Data::~Data() {}
 
 
 // --- host base class ---
 
-Host::Host(HostType _type) : 
+Host::Host(HostType _type) :
 	type(_type),
 	host(nullptr)
 {}
@@ -120,7 +121,6 @@ bool Server::Initialize(const char* serverIP, enet_uint16 port, ConnectionEvent 
 
 	ENetAddress address;
 	enet_address_set_host(&address, serverIP);
-	//address.host = ENET_HOST_ANY;
 	address.port = port;
 
 	host = enet_host_create(&address, 32, 2, 0, 0);
@@ -135,17 +135,38 @@ bool Server::Initialize(const char* serverIP, enet_uint16 port, ConnectionEvent 
 	return true;
 }
 
+void Server::BroadcastData(void* data, size_t byteSize, ENetPeer* exlude)
+{
+	ENetPacket* packet = enet_packet_create(data, byteSize, ENET_PACKET_FLAG_RELIABLE);
+
+	if (exlude == nullptr)
+	{
+		enet_host_broadcast(host, 0, packet);
+	}
+	else
+	{
+		for (auto& peer : connectedPeers)
+		{
+			if(peer != exlude)
+				enet_peer_send(peer, 0, packet);
+		}
+	}
+
+	enet_host_flush(host);
+}
+
 void Server::OnConnect(ENetPeer* peer)
 {
-	if(connectedPeers.count(peer) == 0)
+	if (connectedPeers.count(peer) == 0)
+	{
 		connectedPeers.insert(peer);
-
-	onClientConnect(this, peer);
+		onClientConnect(peer);
+	}
 }
 
 void Server::OnDisconnect(ENetPeer* peer)
 {
-	onClientDisconnect(this, peer);
+	onClientDisconnect(peer);
 	connectedPeers.erase(peer);
 }
 
@@ -183,7 +204,7 @@ bool Client::RequestConnectionToServer(const char* serverIP, enet_uint16 port)
 {
 	ENetAddress address;
 	ENetEvent event;
-	
+
 	enet_address_set_host(&address, serverIP);
 	address.port = port;
 
@@ -200,12 +221,16 @@ bool Client::RequestConnectionToServer(const char* serverIP, enet_uint16 port)
 
 void Client::OnConnect(ENetPeer* peer)
 {
-	server = peer;
-	onServerConnect(this, server);
+	if (server == nullptr)
+	{
+		server = peer;
+		onServerConnect(server);
+	}
 }
 
 void Client::OnDisconnect(ENetPeer* peer)
 {
-	onServerDisconnect(this, server);
+	onServerDisconnect(server);
 	server = nullptr;
+}
 }

@@ -19,7 +19,6 @@
 #include "core/cvar.h"
 #include "render/physics.h"
 #include <chrono>
-#include "game/laser.h"
 
 using namespace Display;
 using namespace Render;
@@ -47,26 +46,6 @@ SpaceGameApp::~SpaceGameApp()
 /**
 */
 
-void ClientConnected(Host* self, ENetPeer* client)
-{
-    printf("client connected!\n");
-}
-
-void ClientDisconnected(Host* self, ENetPeer* client)
-{
-    printf("client disconnected!\n");
-}
-
-void ServerConnected(Host* self, ENetPeer* server)
-{
-    printf("server connected!\n");
-}
-
-void ServerDisconnected(Host* self, ENetPeer* server)
-{
-    printf("server disconnected!\n");
-}
-
 bool
 SpaceGameApp::Open()
 {
@@ -86,56 +65,6 @@ SpaceGameApp::Open()
         this->RenderUI();
     });
 
-    // setup console commands
-    InitializeENet();
-    this->host = nullptr;
-
-    this->console = new Console("console", 128);
-    this->console->SetCommand("server", [this](const std::string& arg) 
-    {
-        if (this->host != nullptr)
-            return;
-
-        Server* server = new Server();
-        if (!server->Initialize(arg.c_str(), 1234, ClientConnected, ClientDisconnected))
-        {
-            delete server;
-            return;
-        }
-        this->host = server;
-    });
-    this->console->SetCommand("client", [this](const std::string& arg)
-    {
-        if (this->host != nullptr)
-            return;
-
-        Client* client = new Client();
-        if (!client->Initialize(ServerConnected, ServerDisconnected) || 
-            !client->RequestConnectionToServer(arg.c_str(), 1234))
-        {
-            delete client;
-            return;
-        }
-        this->host = client;
-    });
-    this->console->SetCommand("msg", [this](const std::string& arg) 
-    {
-        if (this->host == nullptr || this->host->type != HostType::Client)
-            return;
-
-        Client* client = dynamic_cast<Client*>(this->host);
-        if (client->server == nullptr)
-            return;
-
-        client->SendData((void*)arg.c_str(), arg.size()+1, client->server);
-    });
-
-    // setup ships
-    SpaceShips::InitSpawnPoints();
-    ModelId shipModelId = LoadModel("assets/space/spaceship.glb");
-    this->ship = SpaceShips::SpawnSpaceShip(shipModelId);
-    SpaceShips::SpawnSpaceShip(shipModelId);
-
     return true;
 }
 
@@ -151,6 +80,7 @@ SpaceGameApp::Run()
     glm::mat4 projection = glm::perspective(glm::radians(90.0f), float(w) / float(h), 0.01f, 1000.f);
     Camera* cam = CameraManager::GetCamera(CAMERA_MAIN);
     cam->projection = projection;
+    cam->view = glm::lookAt(glm::vec3(0.f, 0.f, -100.f), glm::vec3(0.f), glm::vec3(0.f, 1.f, 0.f));
 
     // load all resources
     ModelId models[6] = {
@@ -262,27 +192,17 @@ SpaceGameApp::Run()
 		glCullFace(GL_BACK);
         
         this->window->Update();
-        this->UpdateHost();
 
         if (kbd->pressed[Input::Key::Code::End])
         {
             ShaderResource::ReloadShaders();
         }
-        if (kbd->pressed[Input::Key::Code::Space])
-        {
-            Lasers::AddLaser(Laser(*this->ship.get(), currentTimeMillis, laserId));
-        }
-
-        ship->ControlShip(dt);
 
         // Store all drawcalls in the render device
         for (auto const& asteroid : asteroids)
         {
             RenderDevice::Draw(std::get<0>(asteroid), std::get<2>(asteroid));
         }
-
-        Lasers::UpdateAndDrawLasers(currentTimeMillis);
-        SpaceShips::UpdateAndDrawSpaceShips(dt);
 
         // Execute the entire rendering pipeline
         RenderDevice::Render(this->window, dt);
@@ -304,12 +224,8 @@ SpaceGameApp::Run()
 void
 SpaceGameApp::Exit()
 {
-    SpaceShips::spaceShips.clear();
-
     this->window->Close();
     delete this->window;
-    delete this->console;
-    delete this->host;
 }
 
 //------------------------------------------------------------------------------
@@ -334,53 +250,8 @@ SpaceGameApp::RenderUI()
 
         ImGui::End();*/
 
-        this->console->Draw();
-
         Debug::DispatchDebugTextDrawing();
 	}
-}
-
-void SpaceGameApp::UpdateHost()
-{
-    if (this->host == nullptr)
-        return;
-
-    this->host->Update();
-
-    struct Protocol
-    {
-        glm::vec3 pos;
-        glm::vec3 vel;
-    };
-
-    if (this->host->type == HostType::Client)
-    {
-        Client* client = dynamic_cast<Client*>(this->host);
-        if (client->server == nullptr)
-            return;
-
-        Protocol data
-        {
-            this->ship->position,
-            this->ship->linearVelocity
-        };
-
-        client->SendData((void*)&data, sizeof(Protocol), client->server);
-    }
-    else
-    {
-        Data d;
-        while (this->host->PopDataStack(d))
-        {
-            /*for (auto& c : *d.data.get())
-            {
-                printf("%c", (char)c);
-            }*/
-
-            Protocol data = *(Protocol*)(&d.data->front());
-            printf("pos: (%f, %f, %f), vel: (%f, %f, %f)\n", data.pos.x, data.pos.y, data.pos.z, data.vel.x, data.vel.y, data.vel.z);
-        }
-    }
 }
 
 } // namespace Game

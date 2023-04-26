@@ -3,7 +3,10 @@
 #include <vector>
 #include <memory>
 #include <unordered_set>
+#include <functional>
 
+namespace Game
+{
 bool InitializeENet();
 
 struct Data
@@ -45,7 +48,7 @@ protected:
 	virtual void OnDisconnect(ENetPeer* peer) = 0;
 };
 
-typedef void(*ConnectionEvent)(Host* self, ENetPeer* peer);
+typedef std::function<void(ENetPeer*)> ConnectionEvent;
 
 class Server : public Host
 {
@@ -60,6 +63,7 @@ public:
 	virtual ~Server() override;
 
 	bool Initialize(const char* serverIP, enet_uint16 port, ConnectionEvent _onClientConnect, ConnectionEvent _onClientDisconnect);
+	void BroadcastData(void* data, size_t byteSize, ENetPeer* exlude = nullptr);
 
 private:
 	virtual void OnConnect(ENetPeer* peer) override;
@@ -85,3 +89,4 @@ private:
 	virtual void OnConnect(ENetPeer* peer) override;
 	virtual void OnDisconnect(ENetPeer* peer) override;
 };
+}

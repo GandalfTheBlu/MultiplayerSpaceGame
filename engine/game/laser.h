@@ -1,17 +1,17 @@
 #pragma once
 #include "render/model.h"
-#include <vector>
-#include "spaceship.h"
 
+namespace Game
+{
 struct Laser
 {
-	glm::vec3 origin;
-	glm::quat orientation;
-	uint64 spawnTimeMillis;
-	Render::ModelId model;
-	int spaceShipId;
+	const glm::vec3 origin;
+	const glm::quat orientation;
+	const uint64 spawnTimeMillis;
+	const uint32 spaceShipId;
+	const uint32 id;
 
-	Laser(const Game::SpaceShip& spaceShip, uint64 currentTimeMillis, Render::ModelId _model);
+	Laser(const glm::vec3& _origin, const glm::quat& _orientation, uint32 _spaceShipId, uint64 _spawnTimeMillis, uint32 _id);
 	~Laser();
 
 	float GetSecondsAlive(uint64 currentTimeMillis);
@@ -19,14 +19,4 @@ struct Laser
 	glm::vec3 GetDirection();
 	glm::mat4 GetLocalToWorld(uint64 currentTimeMillis, float velocity);
 };
-
-namespace Lasers
-{
-	extern std::vector<Laser> lasers;
-	extern const float laserMaxTime;
-	extern const float laserSpeed;
-
-	void AddLaser(const Laser& laser);
-	void RemoveLaser(size_t index);
-	void UpdateAndDrawLasers(uint64 currentTimeMillis);
 }
