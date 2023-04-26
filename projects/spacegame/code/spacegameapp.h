@@ -8,9 +8,9 @@
 //------------------------------------------------------------------------------
 #include "core/app.h"
 #include "render/window.h"
-#include "console.h"
-#include "network.h"
-#include "spaceship.h"
+#include "game/console.h"
+#include "game/network.h"
+#include "game/spaceship.h"
 
 namespace Game
 {

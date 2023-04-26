@@ -19,7 +19,7 @@
 #include "core/cvar.h"
 #include "render/physics.h"
 #include <chrono>
-#include "laser.h"
+#include "game/laser.h"
 
 using namespace Display;
 using namespace Render;
