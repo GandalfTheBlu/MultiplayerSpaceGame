@@ -14,6 +14,8 @@ ClientApp::ClientApp() :
     window(nullptr),
     console(nullptr),
     client(nullptr),
+    currentTimeMillis(0),
+    hasReceivedSpaceShip(false),
     controlledShipId(0),
     controlledShip(nullptr),
     spaceShipModel(0),
@@ -182,24 +184,6 @@ bool ClientApp::Open()
     return true;
 }
 
-Game::InputData GetInputData()
-{
-    Input::Keyboard* kbd = Input::GetDefaultKeyboard();
-    Game::InputData data;
-
-    data.w = kbd->held[Input::Key::W];
-    data.shift = kbd->held[Input::Key::Shift];
-    data.left = kbd->held[Input::Key::Left];
-    data.right = kbd->held[Input::Key::Right];
-    data.up = kbd->held[Input::Key::Up];
-    data.down = kbd->held[Input::Key::Down];
-    data.a = kbd->held[Input::Key::A];
-    data.d = kbd->held[Input::Key::D];
-    data.space = kbd->pressed[Input::Key::Space];
-
-    return data;
-}
-
 void ClientApp::Run()
 {
     Input::Keyboard* kbd = Input::GetDefaultKeyboard();
@@ -211,7 +195,7 @@ void ClientApp::Run()
     while (this->window->IsOpen())
     {
         auto timeStart = std::chrono::steady_clock::now();
-        uint64 currentTimeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(timeStart.time_since_epoch()).count();
+        this->currentTimeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(timeStart.time_since_epoch()).count();
 
         glClear(GL_DEPTH_BUFFER_BIT);
         glEnable(GL_DEPTH_TEST);
@@ -225,13 +209,12 @@ void ClientApp::Run()
             this->controlledShip->CompareAndSetImputData(GetInputData());
             this->controlledShip->FollowThisWithCamera(dt);
         }
-        else if (this->spaceShips.size() > 0)
+        else
         {
-            // wait for the packet with the game state to arrive before trying to control any ship
-            this->ControllSpaceShip(this->controlledShipId);
+            this->TryGetControlledSpaceShip();
         }
 
-        this->UpdateAndDrawLasers(currentTimeMillis);
+        this->UpdateAndDrawLasers();
         this->UpdateAndDrawSpaceShips(dt);
 
         if (kbd->pressed[Input::Key::Code::End])
@@ -355,6 +338,7 @@ void ClientApp::HandleMessage_ClientConnect(const Protocol::PacketWrapper* packe
 {
     const Protocol::ClientConnectS2C* inPacket = static_cast<const Protocol::ClientConnectS2C*>(packet->packet());
     this->controlledShipId = inPacket->uuid();
+    this->hasReceivedSpaceShip = true;
 }
 
 void UnpackPlayer(const Protocol::Player* player, glm::vec3& position, glm::quat& orientation, glm::vec3& velocity, uint32& id)
@@ -365,11 +349,11 @@ void UnpackPlayer(const Protocol::Player* player, glm::vec3& position, glm::quat
     id = player->uuid();
 
     position = glm::vec3(p_pos.x(), p_pos.y(), p_pos.z());
-    orientation = glm::quat(p_dir.x(), p_dir.y(), p_dir.z(), p_dir.w());
+    orientation = glm::quat(p_dir.w(), p_dir.x(), p_dir.y(), p_dir.z());
     velocity = glm::vec3(p_vel.x(), p_vel.y(), p_vel.z());
 }
 
-void UnpackLaser(const Protocol::Laser* laser, glm::vec3& origin, glm::quat& orientation, uint32& spaceShipId, uint64& spawnTime, uint32& id)
+void UnpackLaser(const Protocol::Laser* laser, glm::vec3& origin, glm::quat& orientation, uint64& spawnTime, uint32& id)
 {
     auto& p_origin = laser->origin();
     auto& p_dir = laser->direction();
@@ -377,9 +361,7 @@ void UnpackLaser(const Protocol::Laser* laser, glm::vec3& origin, glm::quat& ori
     id = laser->uuid();
 
     origin = glm::vec3(p_origin.x(), p_origin.y(), p_origin.z());
-    orientation = glm::quat(p_dir.x(), p_dir.y(), p_dir.z(), p_dir.w());
-
-    spaceShipId = 0;// temporary (not implemented in protocol yet)
+    orientation = glm::quat(p_dir.w(), p_dir.x(), p_dir.y(), p_dir.z());
 }
 
 void ClientApp::HandleMessage_GameState(const Protocol::PacketWrapper* packet) 
@@ -396,7 +378,17 @@ void ClientApp::HandleMessage_GameState(const Protocol::PacketWrapper* packet)
         glm::vec3 velocity;
         uint32 id;
         UnpackPlayer(p_player, position, orientation, velocity, id);
-        this->SpawnSpaceShip(position, orientation, velocity, id);
+
+        // space ship already spawned
+        if (this->SpaceShipIndex(id) < this->spaceShips.size())
+        {
+            this->UpdateSpaceShipData(position, orientation, velocity, id);
+        }
+        // space ship is new and must be spawned
+        else
+        {
+            this->SpawnSpaceShip(position, orientation, velocity, id);
+        }
     }
 
     for (size_t i = 0; i < p_lasers->size(); i++)
@@ -404,11 +396,15 @@ void ClientApp::HandleMessage_GameState(const Protocol::PacketWrapper* packet)
         auto p_laser = p_lasers->operator[](i);
         glm::vec3 origin;
         glm::quat orientation;
-        uint32 spaceShipId;
         uint64 spawnTime;
         uint32 id;
-        UnpackLaser(p_laser, origin, orientation, spaceShipId, spawnTime, id);
-        this->SpawnLaser(origin, orientation, spaceShipId, spawnTime, id);
+        UnpackLaser(p_laser, origin, orientation, spawnTime, id);
+
+        // laser is new and must be spawned
+        if (this->LaserIndex(id) >= this->lasers.size())
+        {
+            this->SpawnLaser(origin, orientation, 0, spawnTime, id);
+        }
     }
 }
 
@@ -422,7 +418,11 @@ void ClientApp::HandleMessage_SpawnPlayer(const Protocol::PacketWrapper* packet)
     uint32 id;
     UnpackPlayer(p_player, position, orientation, velocity, id);
 
-    this->SpawnSpaceShip(position, orientation, velocity, id);
+    // space ship is new and must be spawned
+    if (this->SpaceShipIndex(id) >= this->spaceShips.size())
+    {
+        this->SpawnSpaceShip(position, orientation, velocity, id);
+    }
 }
 
 void ClientApp::HandleMessage_DespawnPlayer(const Protocol::PacketWrapper* packet)
@@ -464,11 +464,15 @@ void ClientApp::HandleMessage_SpawnLaser(const Protocol::PacketWrapper* packet)
     auto p_laser = inPacket->laser();
     glm::vec3 origin;
     glm::quat orientation;
-    uint32 spaceShipId;
     uint64 spawnTime;
     uint32 id;
-    UnpackLaser(p_laser, origin, orientation, spaceShipId, spawnTime, id);
-    this->SpawnLaser(origin, orientation, spaceShipId, spawnTime, id);
+    UnpackLaser(p_laser, origin, orientation, spawnTime, id);
+
+    // laser is new and must be spawned
+    if (this->LaserIndex(id) >= this->lasers.size())
+    {
+        this->SpawnLaser(origin, orientation, 0, spawnTime, id);
+    }
 }
 
 void ClientApp::HandleMessage_DespawnLaser(const Protocol::PacketWrapper* packet)
@@ -483,6 +487,25 @@ void ClientApp::HandleMessage_Text(const Protocol::PacketWrapper* packet)
     printf("[MESSAGE] %s\n", inPacket->text()->c_str());
 }
 
+Game::InputData ClientApp::GetInputData()
+{
+    Input::Keyboard* kbd = Input::GetDefaultKeyboard();
+    Game::InputData data;
+
+    data.w = kbd->held[Input::Key::W];
+    data.shift = kbd->held[Input::Key::Shift];
+    data.left = kbd->held[Input::Key::Left];
+    data.right = kbd->held[Input::Key::Right];
+    data.up = kbd->held[Input::Key::Up];
+    data.down = kbd->held[Input::Key::Down];
+    data.a = kbd->held[Input::Key::A];
+    data.d = kbd->held[Input::Key::D];
+    data.space = kbd->pressed[Input::Key::Space];
+    data.timeStamp = this->currentTimeMillis;
+
+    return data;
+}
+
 size_t ClientApp::SpaceShipIndex(uint32 spaceShipId)
 {
     size_t index = 0;
@@ -491,9 +514,12 @@ size_t ClientApp::SpaceShipIndex(uint32 spaceShipId)
     return index;
 }
 
-void ClientApp::ControllSpaceShip(uint32 spaceShipId)
+void ClientApp::TryGetControlledSpaceShip()
 {
-    size_t index = this->SpaceShipIndex(spaceShipId);
+    if (!this->hasReceivedSpaceShip)
+        return;
+
+    size_t index = this->SpaceShipIndex(this->controlledShipId);
     if(index < spaceShips.size())
         this->controlledShip = spaceShips[index];
 }
@@ -510,6 +536,9 @@ void ClientApp::DespawnSpaceShip(uint32 spaceShipId)
 {
     size_t index = this->SpaceShipIndex(spaceShipId);
 
+    if (index >= this->spaceShips.size())
+        return;
+
     delete this->spaceShips[index];
     this->spaceShips.erase(this->spaceShips.begin() + index);
 }
@@ -517,6 +546,9 @@ void ClientApp::DespawnSpaceShip(uint32 spaceShipId)
 void ClientApp::RespawnSpaceShip(const glm::vec3& position, const glm::quat& orientation, uint32 spaceShipId)
 {
     size_t index = this->SpaceShipIndex(spaceShipId);
+
+    if (index >= this->spaceShips.size())
+        return;
 
     this->spaceShips[index]->isHitByLaser = false;
     this->spaceShips[index]->position = position;
@@ -527,6 +559,9 @@ void ClientApp::RespawnSpaceShip(const glm::vec3& position, const glm::quat& ori
 void ClientApp::UpdateSpaceShipData(const glm::vec3& position, const glm::quat& orientation, const glm::vec3& velocity, uint32 spaceShipId)
 {
     size_t index = this->SpaceShipIndex(spaceShipId);
+
+    if (index >= this->spaceShips.size())
+        return;
 
     this->spaceShips[index]->position = position;
     this->spaceShips[index]->orientation = orientation;
@@ -540,6 +575,14 @@ void ClientApp::UpdateAndDrawSpaceShips(float deltaTime)
         this->spaceShips[i]->Update(deltaTime);
         Render::RenderDevice::Draw(this->spaceShipModel, this->spaceShips[i]->transform);
     }
+}
+
+size_t ClientApp::LaserIndex(uint32 laserId)
+{
+    size_t index = 0;
+    for (; index < this->lasers.size() && this->lasers[index]->id != laserId; index++);
+
+    return index;
 }
 
 void ClientApp::SpawnLaser(const glm::vec3& origin, const glm::quat& orientation, uint32 spaceShipId, uint64 spawnTimeMillis, uint32 laserId)
@@ -557,10 +600,10 @@ void ClientApp::DespawnLaser(uint32 laserId)
     this->lasers.erase(this->lasers.begin() + index);
 }
 
-void ClientApp::UpdateAndDrawLasers(uint64 currentTimeMillis)
+void ClientApp::UpdateAndDrawLasers()
 {
     for (size_t i = 0; i < this->lasers.size(); i++)
     {
-        Render::RenderDevice::Draw(this->laserModel, this->lasers[i]->GetLocalToWorld(currentTimeMillis, this->laserSpeed));
+        Render::RenderDevice::Draw(this->laserModel, this->lasers[i]->GetLocalToWorld(this->currentTimeMillis, this->laserSpeed));
     }
 }

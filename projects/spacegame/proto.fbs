@@ -14,19 +14,19 @@ struct Vec4 {
 }
 
 struct Laser {
-	uuid:uint32; // Unique universal identifier of the laser.
-	start_time:uint64; // The UNIX time in ms when the laser was created.
-	end_time:uint64; // The UNIX time in ms when the laser should die.
-	origin:Vec3; // Origin position of the laser.
-	direction:Vec4; // The quaternion direction of the laser.
+	uuid:uint32;		// Unique universal identifier of the laser.
+	start_time:uint64;	// The UNIX time in ms when the laser was created.
+	end_time:uint64;	// The UNIX time in ms when the laser should die.
+	origin:Vec3;		// Origin position of the laser.
+	direction:Vec4;		// The quaternion direction of the laser.
 }
 
 struct Player {
-	uuid:uint32; // Unique universal identifier of the laser.
-	position:Vec3; // The current position of the player.
-	velocity:Vec3; // The current velocity of the player.
-	acceleration:Vec3; // The current acceleration of the player.
-	direction:Vec4; // The current quaternion direction of the player.
+	uuid:uint32;		// Unique universal identifier of the laser.
+	position:Vec3;		// The current position of the player.
+	velocity:Vec3;		// The current velocity of the player.
+	acceleration:Vec3;	// The current acceleration of the player.
+	direction:Vec4;		// The current quaternion direction of the player.
 }
 
 union PacketType {

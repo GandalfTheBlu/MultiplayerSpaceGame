@@ -37,6 +37,8 @@ private:
 	void DespawnSpaceShip(ENetPeer* client);
 	void RespawnSpaceShip(ENetPeer* client);
 	void UpdateAndDrawSpaceShips(float deltaTime);
+	void SendGameState(ENetPeer* client);
+	void SendClientConnect(ENetPeer* client);
 
 	void SpawnLaser(const glm::vec3& origin, const glm::quat& orientation, uint32 spaceShipId, uint64 currentTimeMillis);
 	void DespawnLaser(size_t index);
@@ -61,4 +63,7 @@ private:
 	uint32 nextLaserId;
 	float laserMaxTime;
 	float laserSpeed;
+
+	bool spectate;
+	size_t spectateIndex;
 };

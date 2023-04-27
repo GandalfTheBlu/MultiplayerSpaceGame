@@ -21,7 +21,9 @@ ServerApp::ServerApp():
     laserModel(0),
     nextLaserId(0),
     laserMaxTime(0.f),
-    laserSpeed(0.f)
+    laserSpeed(0.f),
+    spectate(false),
+    spectateIndex(0)
 {}
 
 ServerApp::~ServerApp(){}
@@ -208,6 +210,43 @@ void ServerApp::Run()
         {
             Render::ShaderResource::ReloadShaders();
         }
+        if (kbd->pressed[Input::Key::S])
+        {
+            this->spectate = !this->spectate;
+        }
+
+        // spectating
+        size_t nShips = this->spaceShips.size();
+        if (this->spectate && nShips > 0)
+        {
+            if (kbd->pressed[Input::Key::Left])
+                this->spectateIndex = (nShips + this->spectateIndex - 1) % nShips;
+            else if (kbd->pressed[Input::Key::Right])
+                this->spectateIndex = (this->spectateIndex + 1) % nShips;
+
+            size_t i = 0;
+            Game::SpaceShip* spectatedShip = nullptr;
+            // this must be the ugliest solution to this problem ever (getting map-element by index)
+            for (auto& spaceShip : this->spaceShips)
+            {
+                if (i == this->spectateIndex)
+                {
+                    spectatedShip = spaceShip.second;
+                    break;
+                }
+                i++;
+            }
+
+            spectatedShip->FollowThisWithCamera(dt);
+        }
+        else
+        {
+            this->spectate = false;
+            this->spectateIndex = 0;
+
+            Render::Camera* cam = Render::CameraManager::GetCamera(CAMERA_MAIN);
+            cam->view = glm::lookAt(glm::vec3(0.f, 0.f, -100.f), glm::vec3(0.f), glm::vec3(0.f, 1.f, 0.f));
+        }
 
         // Store all drawcalls in the render device
         for (auto const& asteroid : this->asteroids)
@@ -247,6 +286,8 @@ void ServerApp::OnClientConnect(ENetPeer* client)
 {
     printf("client connected\n");
     this->SpawnSpaceShip(client);
+    this->SendGameState(client);
+    this->SendClientConnect(client);
 }
 
 void ServerApp::OnClientDisconnect(ENetPeer* client)
@@ -342,13 +383,20 @@ void ServerApp::InitSpawnPoints()
     }
 }
 
-void PackPlayer(Game::SpaceShip* spaceShip, Protocol::Player& player)
+void PackPlayer(Game::SpaceShip* spaceShip, Protocol::Player& p_player)
 {
     auto p_position = Protocol::Vec3(spaceShip->position.x, spaceShip->position.y, spaceShip->position.z);
-    auto p_velocity = Protocol::Vec3(0.f, 0.f, 0.f);
+    auto p_velocity = Protocol::Vec3(spaceShip->linearVelocity.x, spaceShip->linearVelocity.y, spaceShip->linearVelocity.z);
     auto p_acceleration = Protocol::Vec3(0.f, 0.f, 0.f);
     auto p_orientation = Protocol::Vec4(spaceShip->orientation.x, spaceShip->orientation.y, spaceShip->orientation.z, spaceShip->orientation.w);
-    player = Protocol::Player(spaceShip->id, p_position, p_velocity, p_acceleration, p_orientation);
+    p_player = Protocol::Player(spaceShip->id, p_position, p_velocity, p_acceleration, p_orientation);
+}
+
+void PackLaser(Game::Laser* laser, Protocol::Laser& p_laser)
+{
+    auto p_origin = Protocol::Vec3(laser->origin.x, laser->origin.y, laser->origin.z);
+    auto p_orientation = Protocol::Vec4(laser->orientation.x, laser->orientation.y, laser->orientation.z, laser->orientation.w);
+    p_laser = Protocol::Laser(laser->id, laser->spawnTimeMillis, 0, p_origin, p_orientation);
 }
 
 void ServerApp::SpawnSpaceShip(ENetPeer* client)
@@ -367,7 +415,8 @@ void ServerApp::SpawnSpaceShip(ENetPeer* client)
     auto outPacket = Protocol::CreateSpawnPlayerS2C(builder, &p_player);
     auto packetWrapper = Protocol::CreatePacketWrapper(builder, Protocol::PacketType_SpawnPlayerS2C, outPacket.Union());
     builder.Finish(packetWrapper);
-    this->server->BroadcastData(builder.GetBufferPointer(), builder.GetSize());
+    // exlude client, since it will receive everything in the gameState-message
+    this->server->BroadcastData(builder.GetBufferPointer(), builder.GetSize(), client);
 }
 
 void ServerApp::UpdateSpaceShipData(ENetPeer* client)
@@ -422,6 +471,12 @@ void ServerApp::UpdateAndDrawSpaceShips(float deltaTime)
 {
     for (auto& spaceShip : this->spaceShips)
     {
+        if (spaceShip.second->inputData.space)
+        {
+            this->SpawnLaser(spaceShip.second->position, spaceShip.second->orientation, 
+                spaceShip.second->id, this->currentTimeMillis);
+        }
+
         spaceShip.second->Update(deltaTime);
 
         if (spaceShip.second->CheckCollisions())
@@ -437,6 +492,42 @@ void ServerApp::UpdateAndDrawSpaceShips(float deltaTime)
     }
 }
 
+void ServerApp::SendGameState(ENetPeer* client)
+{
+    flatbuffers::FlatBufferBuilder builder = flatbuffers::FlatBufferBuilder();
+    
+    std::vector<Protocol::Player> p_players;
+    for (auto& spaceShip : this->spaceShips)
+    {
+        Protocol::Player p_player;
+        PackPlayer(spaceShip.second, p_player);
+        p_players.push_back(p_player);
+    }
+
+    std::vector<Protocol::Laser> p_lasers;
+    for (auto& laser : this->lasers)
+    {
+        Protocol::Laser p_laser;
+        PackLaser(laser, p_laser);
+        p_lasers.push_back(p_laser);
+    }
+
+    auto outPacket = Protocol::CreateGameStateS2CDirect(builder, &p_players, &p_lasers);
+    auto packetWrapper = Protocol::CreatePacketWrapper(builder, Protocol::PacketType_GameStateS2C, outPacket.Union());
+    builder.Finish(packetWrapper);
+    this->server->SendData(builder.GetBufferPointer(), builder.GetSize(), client);
+}
+
+void ServerApp::SendClientConnect(ENetPeer* client)
+{
+    uint32 id = spaceShips[client]->id;
+    flatbuffers::FlatBufferBuilder builder = flatbuffers::FlatBufferBuilder();
+    auto outPacket = Protocol::CreateClientConnectS2C(builder, id);
+    auto packetWrapper = Protocol::CreatePacketWrapper(builder, Protocol::PacketType_ClientConnectS2C, outPacket.Union());
+    builder.Finish(packetWrapper);
+    this->server->SendData(builder.GetBufferPointer(), builder.GetSize(), client);
+}
+
 void ServerApp::SpawnLaser(const glm::vec3& origin, const glm::quat& orientation, uint32 spaceShipId, uint64 currentTimeMillis)
 {
     Game::Laser* laser = new Game::Laser(origin, orientation, spaceShipId, currentTimeMillis, this->nextLaserId);
@@ -444,14 +535,27 @@ void ServerApp::SpawnLaser(const glm::vec3& origin, const glm::quat& orientation
     this->nextLaserId++;
 
     // send message to others
+    flatbuffers::FlatBufferBuilder builder = flatbuffers::FlatBufferBuilder();
+    Protocol::Laser p_laser;
+    PackLaser(laser, p_laser);
+    auto outPacket = Protocol::CreateSpawnLaserS2C(builder, &p_laser);
+    auto packetWrapper = Protocol::CreatePacketWrapper(builder, Protocol::PacketType_SpawnLaserS2C, outPacket.Union());
+    builder.Finish(packetWrapper);
+    this->server->BroadcastData(builder.GetBufferPointer(), builder.GetSize());
 }
 
 void ServerApp::DespawnLaser(size_t index)
 {
+    uint32 id = this->lasers[index]->id;
     delete this->lasers[index];
     this->lasers.erase(this->lasers.begin() + index);
     
     // send message to others
+    flatbuffers::FlatBufferBuilder builder = flatbuffers::FlatBufferBuilder();
+    auto outPacket = Protocol::CreateDespawnLaserS2C(builder, id);
+    auto packetWrapper = Protocol::CreatePacketWrapper(builder, Protocol::PacketType_DespawnLaserS2C, outPacket.Union());
+    builder.Finish(packetWrapper);
+    this->server->BroadcastData(builder.GetBufferPointer(), builder.GetSize());
 }
 
 void ServerApp::UpdateAndDrawLasers(uint64 currentTimeMillis)

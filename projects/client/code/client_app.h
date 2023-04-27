@@ -37,26 +37,30 @@ private:
 	void HandleMessage_DespawnLaser(const Protocol::PacketWrapper* packet);
 	void HandleMessage_Text(const Protocol::PacketWrapper* packet);
 
+	Game::InputData GetInputData();
 	size_t SpaceShipIndex(uint32 spaceShipId);
-	void ControllSpaceShip(uint32 spaceShipId);
+	void TryGetControlledSpaceShip();
 	void SpawnSpaceShip(const glm::vec3& position, const glm::quat& orientation, const glm::vec3& velocity, uint32 spaceShipId);
 	void DespawnSpaceShip(uint32 spaceShipId);
 	void RespawnSpaceShip(const glm::vec3& position, const glm::quat& orientation, uint32 spaceShipId);
 	void UpdateSpaceShipData(const glm::vec3& position, const glm::quat& orientation, const glm::vec3& velocity, uint32 spaceShipId);
 	void UpdateAndDrawSpaceShips(float deltaTime);
 
+	size_t LaserIndex(uint32 laserId);
 	void SpawnLaser(const glm::vec3& origin, const glm::quat& orientation, uint32 spaceShipId, uint64 spawnTimeMillis, uint32 laserId);
 	void DespawnLaser(uint32 laserId);
-	void UpdateAndDrawLasers(uint64 currentTimeMillis);
+	void UpdateAndDrawLasers();
 
 
 	Display::Window* window;
 	Console* console;
 	Game::Client* client;
+	uint64 currentTimeMillis;
 
 	std::vector<std::tuple<Render::ModelId, Physics::ColliderId, glm::mat4>> asteroids;
 
 	std::vector<Game::SpaceShip*> spaceShips;
+	bool hasReceivedSpaceShip;
 	uint32 controlledShipId;
 	Game::SpaceShip* controlledShip;
 	Render::ModelId spaceShipModel;
