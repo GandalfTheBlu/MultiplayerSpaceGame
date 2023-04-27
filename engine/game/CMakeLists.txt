@@ -11,6 +11,8 @@ SET(files_game
 	network.cc
 	spaceship.h
 	spaceship.cc
+	dead_rec.h
+	dead_rec.cc
 	)
 SOURCE_GROUP("game" FILES ${files_game})
 	

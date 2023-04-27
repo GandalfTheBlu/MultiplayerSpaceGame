@@ -1,4 +1,5 @@
 #pragma once
+#include "dead_rec.h"
 
 namespace Render
 {
@@ -25,9 +26,12 @@ struct SpaceShip
 
     glm::vec3 position = glm::vec3(0);
     glm::quat orientation = glm::identity<glm::quat>();
+    glm::vec3 linearVelocity = glm::vec3(0);
+
+    DeadRecBody drBody;
+
     glm::vec3 camPos = glm::vec3(0, 1.0f, -2.0f);
     glm::mat4 transform = glm::mat4(1);
-    glm::vec3 linearVelocity = glm::vec3(0);
 
     const float normalSpeed = 1.0f;
     const float boostSpeed = normalSpeed * 2.0f;
@@ -47,12 +51,14 @@ struct SpaceShip
     float emitterOffset = -0.5f;
 
     uint32 id = 0;
-    bool isHitByLaser = false;
+    bool isHit = false;
 
     bool CheckCollisions();
     void CompareAndSetImputData(const InputData& data);
     void FollowThisWithCamera(float dt);
-    void Update(float dt);
+    void ServerUpdate(float dt);
+    void ClientUpdate(float dt);
+    void SetServerData(const glm::vec3& serverPos, const glm::vec3& serverVel, const glm::vec3& serverAcc, const glm::quat& serverOri, bool hardReset, uint64 timeStamp);
     
     const glm::vec3 colliderEndPoints[8] = {
         glm::vec3(-1.10657, -0.480347, -0.346542),  // right wing

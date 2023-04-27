@@ -28,7 +28,8 @@ InputData::InputData()
     timeStamp = 0;
 }
 
-SpaceShip::SpaceShip()
+SpaceShip::SpaceShip() :
+    drBody(0.1f)// server latency
 {
     uint32_t numParticles = 2048;
     this->particleEmitterLeft = new ParticleEmitter(numParticles);
@@ -65,7 +66,7 @@ SpaceShip::~SpaceShip()
 bool
 SpaceShip::CheckCollisions()
 {
-    if (isHitByLaser)
+    if (isHit)
         return true;
 
     glm::mat4 rotation = (glm::mat4)orientation;
@@ -102,14 +103,14 @@ void SpaceShip::FollowThisWithCamera(float dt)
 {
     Camera* cam = CameraManager::GetCamera(CAMERA_MAIN);
     // update camera view transform
-    vec3 desiredCamPos = this->position + vec3(this->transform * vec4(0, camOffsetY, -4.0f, 0));
-    this->camPos = mix(this->camPos, desiredCamPos, dt * cameraSmoothFactor);
+    vec3 desiredCamPos = this->position + vec3(this->transform * vec4(0, this->camOffsetY, -4.0f, 0));
+    this->camPos = mix(this->camPos, desiredCamPos, dt * this->cameraSmoothFactor);
     
     cam->view = lookAt(this->camPos, this->camPos + vec3(this->transform[2]), vec3(this->transform[1]));
 }
 
 void
-SpaceShip::Update(float dt)
+SpaceShip::ServerUpdate(float dt)
 {
     if (this->inputData.w)
     {
@@ -152,10 +153,39 @@ SpaceShip::Update(float dt)
     this->particleEmitterRight->data.origin = glm::vec4(vec3(this->position + (vec3(this->transform[0]) * thrusterPosOffset)) + (vec3(this->transform[2]) * emitterOffset), 1);
     this->particleEmitterRight->data.dir = glm::vec4(glm::vec3(-this->transform[2]), 0);
 
-    float t = (currentSpeed / this->normalSpeed);
+    float t = (this->currentSpeed / this->normalSpeed);
     this->particleEmitterLeft->data.startSpeed = 1.2 + (3.0f * t);
     this->particleEmitterLeft->data.endSpeed = 0.0f + (3.0f * t);
     this->particleEmitterRight->data.startSpeed = 1.2 + (3.0f * t);
     this->particleEmitterRight->data.endSpeed = 0.0f + (3.0f * t);
+}
+
+void SpaceShip::ClientUpdate(float dt)
+{
+    DeadRecBody::Body interpBody = this->drBody.Interpolate(dt);
+    this->position = interpBody.position;
+    this->linearVelocity = interpBody.velocity;
+    this->orientation = interpBody.orientation;
+
+    this->transform = translate(this->position) * (mat4)this->orientation;
+
+    this->currentSpeed = glm::length(this->linearVelocity);
+
+    const float thrusterPosOffset = 0.365f;
+    this->particleEmitterLeft->data.origin = glm::vec4(vec3(this->position + (vec3(this->transform[0]) * -thrusterPosOffset)) + (vec3(this->transform[2]) * emitterOffset), 1);
+    this->particleEmitterLeft->data.dir = glm::vec4(glm::vec3(-this->transform[2]), 0);
+    this->particleEmitterRight->data.origin = glm::vec4(vec3(this->position + (vec3(this->transform[0]) * thrusterPosOffset)) + (vec3(this->transform[2]) * emitterOffset), 1);
+    this->particleEmitterRight->data.dir = glm::vec4(glm::vec3(-this->transform[2]), 0);
+
+    float t = (this->currentSpeed / this->normalSpeed);
+    this->particleEmitterLeft->data.startSpeed = 1.2 + (3.0f * t);
+    this->particleEmitterLeft->data.endSpeed = 0.0f + (3.0f * t);
+    this->particleEmitterRight->data.startSpeed = 1.2 + (3.0f * t);
+    this->particleEmitterRight->data.endSpeed = 0.0f + (3.0f * t);
+}
+
+void SpaceShip::SetServerData(const glm::vec3& serverPos, const glm::vec3& serverVel, const glm::vec3& serverAcc, const glm::quat& serverOri, bool hardReset, uint64 timeStamp)
+{
+    this->drBody.SetDataFromServer({serverPos, serverVel, serverAcc, serverOri}, hardReset, timeStamp);
 }
 }

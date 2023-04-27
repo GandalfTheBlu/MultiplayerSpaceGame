@@ -30,8 +30,8 @@ ServerApp::~ServerApp(){}
 
 bool ServerApp::Open()
 {
-    int width = 1000; 
-    int height = 800;
+    int width = 1280; 
+    int height = 720;
 
 	// setup window and rendering
 	App::Open();
@@ -82,11 +82,23 @@ bool ServerApp::Open()
             this->server = nullptr;
         }
 	});
+    this->console->SetCommand("msg", [this](const std::string& arg)
+    {
+        if (this->server == nullptr)
+            return;
+
+        flatbuffers::FlatBufferBuilder builder = flatbuffers::FlatBufferBuilder();
+        auto outPacket = Protocol::CreateTextS2CDirect(builder, arg.c_str());
+        auto packetWrapper = Protocol::CreatePacketWrapper(builder, Protocol::PacketType_TextS2C, outPacket.Union());
+        builder.Finish(packetWrapper);
+
+        this->server->BroadcastData(builder.GetBufferPointer(), builder.GetSize());
+    });
 
 	// setup space ships and lasers
 	this->InitSpawnPoints();
     this->spaceShipModel = Render::LoadModel("assets/space/spaceship.glb");
-    this->spaceShipCollisionRadiusSquared = 5.f * 5.f;
+    this->spaceShipCollisionRadiusSquared = 2.f * 2.f;
     this->laserModel = Render::LoadModel("assets/space/laser.glb");
     this->laserMaxTime = 2.f;
     this->laserSpeed = 20.f;
@@ -296,6 +308,23 @@ void ServerApp::OnClientDisconnect(ENetPeer* client)
     this->DespawnSpaceShip(client);
 }
 
+void ServerApp::InitSpawnPoints()
+{
+    float radius = 100.f;
+    for (int i = 0; i < 32; i++)
+    {
+        float angle = (float)i / 33.f * 3.1415f * 2.f;
+        spawnPoints.push_back(glm::vec3(
+            radius * glm::cos(angle),
+            0.f,
+            radius * glm::sin(angle)
+        ));
+    }
+}
+
+
+// -- update functions --
+
 void ServerApp::RenderUI()
 {
     if (this->window->IsOpen())
@@ -327,6 +356,120 @@ void ServerApp::UpdateNetwork()
             break;
         }
     }
+}
+
+void ServerApp::UpdateAndDrawSpaceShips(float deltaTime)
+{
+    for (auto& spaceShip : this->spaceShips)
+    {
+        // fire laser
+        if (spaceShip.second->inputData.space)
+        {
+            this->SpawnLaser(spaceShip.second->position, spaceShip.second->orientation,
+                spaceShip.second->id, this->currentTimeMillis);
+        }
+
+        // check asteroid collisions and previously detected hits
+        if (spaceShip.second->CheckCollisions())
+        {
+            this->RespawnSpaceShip(spaceShip.first);
+            continue;
+        }
+        else
+        {
+            // check collisions with other space ships
+            for (auto& otherShip : this->spaceShips)
+            {
+                if (otherShip.second == spaceShip.second)
+                    continue;
+
+                glm::vec3 diff = otherShip.second->position - spaceShip.second->position;
+                if (glm::dot(diff, diff) < this->spaceShipCollisionRadiusSquared)
+                {
+                    spaceShip.second->isHit = true;
+                    otherShip.second->isHit = true;
+                }
+            }
+
+            // if a new collision is detected => respawn
+            if (spaceShip.second->isHit)
+            {
+                this->RespawnSpaceShip(spaceShip.first);
+                continue;
+            }
+        }
+
+        spaceShip.second->ServerUpdate(deltaTime);
+        this->UpdateSpaceShipData(spaceShip.first);
+
+        Render::RenderDevice::Draw(this->spaceShipModel, spaceShip.second->transform);
+    }
+}
+
+void ServerApp::UpdateAndDrawLasers(uint64 currentTimeMillis)
+{
+    for (int i = (int)this->lasers.size() - 1; i >= 0; i--)
+    {
+        // check timeout
+        if (this->lasers[i]->GetSecondsAlive(currentTimeMillis) >= this->laserMaxTime)
+        {
+            this->DespawnLaser(i);
+            continue;
+        }
+
+        // check space ship collision
+        bool hitShip = false;
+        glm::vec3 currentPos = this->lasers[i]->GetCurrentPosition(currentTimeMillis, this->laserSpeed);
+        for (auto& spaceShip : this->spaceShips)
+        {
+            if (spaceShip.second->id == this->lasers[i]->spaceShipId)// ignore the ship it was fired from
+                continue;
+
+            glm::vec3 diff = currentPos - spaceShip.second->position;
+            if (glm::dot(diff, diff) < this->spaceShipCollisionRadiusSquared)
+            {
+                spaceShip.second->isHit = true;
+                hitShip = true;
+                break;
+            }
+        }
+
+        if (hitShip)
+            continue;
+
+        // check asteroid collision
+        glm::vec3 direction = this->lasers[i]->GetDirection();
+        float maxDist = 1.f;
+
+        Physics::RaycastPayload raycastResult = Physics::Raycast(currentPos, direction, maxDist);
+        if (raycastResult.hit)
+        {
+            this->DespawnLaser(i);
+            continue;
+        }
+
+        // draw
+        Render::RenderDevice::Draw(this->laserModel, this->lasers[i]->GetLocalToWorld(currentTimeMillis, this->laserSpeed));
+    }
+}
+
+
+// -- unpack messages from client --
+
+void ServerApp::PackPlayer(Game::SpaceShip* spaceShip, Protocol::Player& p_player)
+{
+    auto p_position = Protocol::Vec3(spaceShip->position.x, spaceShip->position.y, spaceShip->position.z);
+    auto p_velocity = Protocol::Vec3(spaceShip->linearVelocity.x, spaceShip->linearVelocity.y, spaceShip->linearVelocity.z);
+    auto p_acceleration = Protocol::Vec3(0.f, 0.f, 0.f);
+    auto p_orientation = Protocol::Vec4(spaceShip->orientation.x, spaceShip->orientation.y, spaceShip->orientation.z, spaceShip->orientation.w);
+    p_player = Protocol::Player(spaceShip->id, p_position, p_velocity, p_acceleration, p_orientation);
+}
+
+void ServerApp::PackLaser(Game::Laser* laser, Protocol::Laser& p_laser)
+{
+    auto p_origin = Protocol::Vec3(laser->origin.x, laser->origin.y, laser->origin.z);
+    auto p_orientation = Protocol::Vec4(laser->orientation.x, laser->orientation.y, laser->orientation.z, laser->orientation.w);
+    p_laser = Protocol::Laser(laser->id, laser->spawnTimeMillis, 0, p_origin, p_orientation);
 }
 
 void ServerApp::HandleMessage_Input(ENetPeer* sender, const Protocol::PacketWrapper* packet)
@@ -362,42 +505,14 @@ void ServerApp::HandleMessage_Text(ENetPeer* sender, const Protocol::PacketWrapp
 
     // send text to all others (exluding sender)
     flatbuffers::FlatBufferBuilder builder = flatbuffers::FlatBufferBuilder();
-    auto text = builder.CreateString(inPacket->text()->c_str());
-    auto outPacket = Protocol::CreateTextC2S(builder, text);
-    auto packetWrapper = Protocol::CreatePacketWrapper(builder, Protocol::PacketType_TextC2S, outPacket.Union());
+    auto outPacket = Protocol::CreateTextS2CDirect(builder, inPacket->text()->c_str());
+    auto packetWrapper = Protocol::CreatePacketWrapper(builder, Protocol::PacketType_TextS2C, outPacket.Union());
     builder.Finish(packetWrapper);
     this->server->BroadcastData(builder.GetBufferPointer(), builder.GetSize(), sender);
 }
 
-void ServerApp::InitSpawnPoints()
-{
-    float radius = 100.f;
-    for (int i = 0; i < 32; i++)
-    {
-        float angle = (float)i / 33.f * 3.1415f * 2.f;
-        spawnPoints.push_back(glm::vec3(
-            radius * glm::cos(angle),
-            0.f,
-            radius * glm::sin(angle)
-        ));
-    }
-}
 
-void PackPlayer(Game::SpaceShip* spaceShip, Protocol::Player& p_player)
-{
-    auto p_position = Protocol::Vec3(spaceShip->position.x, spaceShip->position.y, spaceShip->position.z);
-    auto p_velocity = Protocol::Vec3(spaceShip->linearVelocity.x, spaceShip->linearVelocity.y, spaceShip->linearVelocity.z);
-    auto p_acceleration = Protocol::Vec3(0.f, 0.f, 0.f);
-    auto p_orientation = Protocol::Vec4(spaceShip->orientation.x, spaceShip->orientation.y, spaceShip->orientation.z, spaceShip->orientation.w);
-    p_player = Protocol::Player(spaceShip->id, p_position, p_velocity, p_acceleration, p_orientation);
-}
-
-void PackLaser(Game::Laser* laser, Protocol::Laser& p_laser)
-{
-    auto p_origin = Protocol::Vec3(laser->origin.x, laser->origin.y, laser->origin.z);
-    auto p_orientation = Protocol::Vec4(laser->orientation.x, laser->orientation.y, laser->orientation.z, laser->orientation.w);
-    p_laser = Protocol::Laser(laser->id, laser->spawnTimeMillis, 0, p_origin, p_orientation);
-}
+// -- operations that send data to the clients -- 
 
 void ServerApp::SpawnSpaceShip(ENetPeer* client)
 {
@@ -411,7 +526,7 @@ void ServerApp::SpawnSpaceShip(ENetPeer* client)
     // send messages to others
     flatbuffers::FlatBufferBuilder builder = flatbuffers::FlatBufferBuilder();
     Protocol::Player p_player;
-    PackPlayer(spaceShip, p_player);
+    this->PackPlayer(spaceShip, p_player);
     auto outPacket = Protocol::CreateSpawnPlayerS2C(builder, &p_player);
     auto packetWrapper = Protocol::CreatePacketWrapper(builder, Protocol::PacketType_SpawnPlayerS2C, outPacket.Union());
     builder.Finish(packetWrapper);
@@ -426,7 +541,7 @@ void ServerApp::UpdateSpaceShipData(ENetPeer* client)
     // send messages to others
     flatbuffers::FlatBufferBuilder builder = flatbuffers::FlatBufferBuilder();
     Protocol::Player p_player;
-    PackPlayer(spaceShip, p_player);
+    this->PackPlayer(spaceShip, p_player);
     auto outPacket = Protocol::CreateUpdatePlayerS2C(builder, this->currentTimeMillis, &p_player);
     auto packetWrapper = Protocol::CreatePacketWrapper(builder, Protocol::PacketType_UpdatePlayerS2C, outPacket.Union());
     builder.Finish(packetWrapper);
@@ -451,7 +566,7 @@ void ServerApp::RespawnSpaceShip(ENetPeer* client)
 {
     static size_t spawnIndex = 16;
     Game::SpaceShip* spaceShip = this->spaceShips[client];
-    spaceShip->isHitByLaser = false;
+    spaceShip->isHit = false;
     spaceShip->position = this->spawnPoints[spawnIndex++ % 32];
     spaceShip->orientation = glm::identity<glm::quat>();
     spaceShip->linearVelocity = glm::vec3(0.f);
@@ -460,36 +575,11 @@ void ServerApp::RespawnSpaceShip(ENetPeer* client)
     // send message to others
     flatbuffers::FlatBufferBuilder builder = flatbuffers::FlatBufferBuilder();
     Protocol::Player p_player;
-    PackPlayer(spaceShip, p_player);
+    this->PackPlayer(spaceShip, p_player);
     auto outPacket = Protocol::CreateTeleportPlayerS2C(builder, this->currentTimeMillis, &p_player);
     auto packetWrapper = Protocol::CreatePacketWrapper(builder, Protocol::PacketType_TeleportPlayerS2C, outPacket.Union());
     builder.Finish(packetWrapper);
     this->server->BroadcastData(builder.GetBufferPointer(), builder.GetSize());
-}
-
-void ServerApp::UpdateAndDrawSpaceShips(float deltaTime)
-{
-    for (auto& spaceShip : this->spaceShips)
-    {
-        if (spaceShip.second->inputData.space)
-        {
-            this->SpawnLaser(spaceShip.second->position, spaceShip.second->orientation, 
-                spaceShip.second->id, this->currentTimeMillis);
-        }
-
-        spaceShip.second->Update(deltaTime);
-
-        if (spaceShip.second->CheckCollisions())
-        {
-            this->RespawnSpaceShip(spaceShip.first);
-        }
-        else
-        {
-            this->UpdateSpaceShipData(spaceShip.first);
-        }
-
-        Render::RenderDevice::Draw(this->spaceShipModel, spaceShip.second->transform);
-    }
 }
 
 void ServerApp::SendGameState(ENetPeer* client)
@@ -500,7 +590,7 @@ void ServerApp::SendGameState(ENetPeer* client)
     for (auto& spaceShip : this->spaceShips)
     {
         Protocol::Player p_player;
-        PackPlayer(spaceShip.second, p_player);
+        this->PackPlayer(spaceShip.second, p_player);
         p_players.push_back(p_player);
     }
 
@@ -508,7 +598,7 @@ void ServerApp::SendGameState(ENetPeer* client)
     for (auto& laser : this->lasers)
     {
         Protocol::Laser p_laser;
-        PackLaser(laser, p_laser);
+        this->PackLaser(laser, p_laser);
         p_lasers.push_back(p_laser);
     }
 
@@ -537,7 +627,7 @@ void ServerApp::SpawnLaser(const glm::vec3& origin, const glm::quat& orientation
     // send message to others
     flatbuffers::FlatBufferBuilder builder = flatbuffers::FlatBufferBuilder();
     Protocol::Laser p_laser;
-    PackLaser(laser, p_laser);
+    this->PackLaser(laser, p_laser);
     auto outPacket = Protocol::CreateSpawnLaserS2C(builder, &p_laser);
     auto packetWrapper = Protocol::CreatePacketWrapper(builder, Protocol::PacketType_SpawnLaserS2C, outPacket.Union());
     builder.Finish(packetWrapper);
@@ -556,51 +646,4 @@ void ServerApp::DespawnLaser(size_t index)
     auto packetWrapper = Protocol::CreatePacketWrapper(builder, Protocol::PacketType_DespawnLaserS2C, outPacket.Union());
     builder.Finish(packetWrapper);
     this->server->BroadcastData(builder.GetBufferPointer(), builder.GetSize());
-}
-
-void ServerApp::UpdateAndDrawLasers(uint64 currentTimeMillis)
-{
-    for (int i = (int)this->lasers.size() - 1; i >= 0; i--)
-    {
-        // check timeout
-        if (this->lasers[i]->GetSecondsAlive(currentTimeMillis) >= this->laserMaxTime)
-        {
-            this->DespawnLaser(i);
-            continue;
-        }
-
-        // check space ship collision
-        bool hitShip = false;
-        glm::vec3 currentPos = this->lasers[i]->GetCurrentPosition(currentTimeMillis, this->laserSpeed);
-        for (auto& spaceShip : this->spaceShips)
-        {
-            if (spaceShip.second->id == this->lasers[i]->spaceShipId)// ignore the ship it was fired from
-                continue;
-
-            glm::vec3 diff = currentPos - spaceShip.second->position;
-            if (glm::dot(diff, diff) < this->spaceShipCollisionRadiusSquared)
-            {
-                spaceShip.second->isHitByLaser = true;
-                hitShip = true;
-                break;
-            }
-        }
-
-        if (hitShip)
-            continue;
-
-        // check asteroid collision
-        glm::vec3 direction = this->lasers[i]->GetDirection();
-        float maxDist = 1.f;
-
-        Physics::RaycastPayload raycastResult = Physics::Raycast(currentPos, direction, maxDist);
-        if (raycastResult.hit)
-        {
-            this->DespawnLaser(i);
-            continue;
-        }
-
-        // draw
-        Render::RenderDevice::Draw(this->laserModel, this->lasers[i]->GetLocalToWorld(currentTimeMillis, this->laserSpeed));
-    }
 }
