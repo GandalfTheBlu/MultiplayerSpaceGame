@@ -565,7 +565,7 @@ Game::InputData ClientApp::GetInputData()
     data.down = kbd->held[Input::Key::Down];
     data.a = kbd->held[Input::Key::A];
     data.d = kbd->held[Input::Key::D];
-    data.space = kbd->pressed[Input::Key::Space];
+    data.space = kbd->held[Input::Key::Space];
     data.timeStamp = this->currentTimeMillis;
 
     return data;

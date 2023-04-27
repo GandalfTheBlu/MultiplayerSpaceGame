@@ -22,6 +22,7 @@ ServerApp::ServerApp():
     nextLaserId(0),
     laserMaxTime(0.f),
     laserSpeed(0.f),
+    laserCooldown(0.1f),
     spectate(false),
     spectateIndex(0)
 {}
@@ -362,9 +363,12 @@ void ServerApp::UpdateAndDrawSpaceShips(float deltaTime)
 {
     for (auto& spaceShip : this->spaceShips)
     {
+        spaceShip.second->timeSinceLastLaser += deltaTime;
+
         // fire laser
-        if (spaceShip.second->inputData.space)
+        if (spaceShip.second->inputData.space && spaceShip.second->timeSinceLastLaser >= this->laserCooldown)
         {
+            spaceShip.second->timeSinceLastLaser = 0.f;
             this->SpawnLaser(spaceShip.second->position, spaceShip.second->orientation,
                 spaceShip.second->id, this->currentTimeMillis);
         }

@@ -68,6 +68,7 @@ private:
 	uint32 nextLaserId;
 	float laserMaxTime;
 	float laserSpeed;
+	float laserCooldown;
 
 	bool spectate;
 	size_t spectateIndex;

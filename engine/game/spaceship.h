@@ -52,6 +52,7 @@ struct SpaceShip
 
     uint32 id = 0;
     bool isHit = false;
+    float timeSinceLastLaser = 0.f;
 
     bool CheckCollisions();
     void CompareAndSetImputData(const InputData& data);
