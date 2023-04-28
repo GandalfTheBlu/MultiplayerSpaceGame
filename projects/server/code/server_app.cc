@@ -579,9 +579,13 @@ void ServerApp::DespawnSpaceShip(ENetPeer* client)
 void ServerApp::RespawnSpaceShip(ENetPeer* client)
 {
     static size_t spawnIndex = 16;
+    spawnIndex ^= (spawnIndex << 13);
+    spawnIndex ^= (spawnIndex >> 17);
+    spawnIndex ^= (spawnIndex << 5);
+
     Game::SpaceShip* spaceShip = this->spaceShips[client];
     spaceShip->isHit = false;
-    spaceShip->position = this->spawnPoints[spawnIndex++ % 32];
+    spaceShip->position = this->spawnPoints[spawnIndex % 32];
     spaceShip->orientation = glm::quatLookAt(glm::normalize(spaceShip->position), glm::vec3(0.f, 1.f, 0.f));
     spaceShip->linearVelocity = glm::vec3(0.f);
     this->nextSpaceShipId++;
