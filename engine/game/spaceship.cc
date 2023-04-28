@@ -136,16 +136,19 @@ SpaceShip::ServerUpdate(float dt)
     this->position += this->linearVelocity * dt * 10.0f;
 
     const float rotationSpeed = 1.8f * dt;
-    rotXSmooth = mix(rotXSmooth, rotX * rotationSpeed, dt * cameraSmoothFactor);
-    rotYSmooth = mix(rotYSmooth, rotY * rotationSpeed, dt * cameraSmoothFactor);
-    rotZSmooth = mix(rotZSmooth, rotZ * rotationSpeed, dt * cameraSmoothFactor);
+    const float fixedDt = 1.f / 60.f;
+    rotXSmooth = mix(rotXSmooth, rotX * rotationSpeed, cameraSmoothFactor * fixedDt);
+    rotYSmooth = mix(rotYSmooth, rotY * rotationSpeed, cameraSmoothFactor * fixedDt);
+    rotZSmooth = mix(rotZSmooth, rotZ * rotationSpeed, cameraSmoothFactor * fixedDt);
     quat localOrientation = quat(vec3(-rotYSmooth, rotXSmooth, rotZSmooth));
     this->orientation = this->orientation * localOrientation;
+
     this->rotationZ -= rotXSmooth;
     this->rotationZ = clamp(this->rotationZ, -45.0f, 45.0f);
-    mat4 T = translate(this->position) * (mat4)this->orientation;
-    this->transform = T * (mat4)quat(vec3(0, 0, rotationZ));
-    this->rotationZ = mix(this->rotationZ, 0.0f, dt * cameraSmoothFactor);
+    glm::mat4 T = translate(this->position) * (mat4)this->orientation;
+    this->transform = T;
+    //this->transform = T * (mat4)quat(vec3(0, 0, rotationZ));
+    this->rotationZ = mix(this->rotationZ, 0.0f, cameraSmoothFactor * fixedDt);
 
     const float thrusterPosOffset = 0.365f;
     this->particleEmitterLeft->data.origin = glm::vec4(vec3(this->position + (vec3(this->transform[0]) * -thrusterPosOffset)) + (vec3(this->transform[2]) * emitterOffset), 1);
