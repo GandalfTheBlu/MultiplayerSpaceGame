@@ -221,11 +221,7 @@ bool Client::RequestConnectionToServer(const char* serverIP, enet_uint16 port)
 
 void Client::OnConnect(ENetPeer* peer)
 {
-	if (server == nullptr)
-	{
-		server = peer;
-		onServerConnect(server);
-	}
+	onServerConnect(server);
 }
 
 void Client::OnDisconnect(ENetPeer* peer)

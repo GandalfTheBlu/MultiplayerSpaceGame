@@ -2,18 +2,26 @@
 #include "console.h"
 #include "imgui.h"
 
-Console::Console(const char* _label, size_t inputBufferSize)
+namespace Game
 {
-	label = _label;
-	buffSize = inputBufferSize;
-	buffer = new char[buffSize];
+Console::Console(const char* _windowLabel, size_t _inputBufferSize, size_t _outputLineSize, size_t _outputLineCount)
+{
+	windowLabel = _windowLabel;
+	inputBufferSize = _inputBufferSize;
+	inputBuffer = new char[inputBufferSize+1];// + 1 for \0-character
 
-	ClearBuffer();
+	outputLineSize = _outputLineSize;
+	outputLineCount = _outputLineCount;
+	outputBuffer = new char[outputLineCount * outputLineSize + 1];// + 1 for \0-character
+
+	ClearInputBuffer();
+	ClearOutputBuffer();
 }
 
 Console::~Console()
 {
-	delete[] buffer;
+	delete[] inputBuffer;
+	delete[] outputBuffer;
 }
 
 void Console::SetCommand(const std::string& commandName, ConsoleCommand commandFunction)
@@ -21,23 +29,59 @@ void Console::SetCommand(const std::string& commandName, ConsoleCommand commandF
 	commands[commandName] = commandFunction;
 }
 
-void Console::Draw()
+void Console::AddOutput(const std::string& output)
 {
-    ImGui::Begin(label);
+	for (size_t i = 1; i < outputLineCount; i++)
+	{
+		for (size_t j = 0; j+1 < outputLineSize; j++)
+		{
+			// shift each line up
+			size_t prevLineIndex = (i - 1) * outputLineSize + j;
+			size_t currLineIndex = i * outputLineSize + j;
+			outputBuffer[prevLineIndex] = outputBuffer[currLineIndex];
 
-    ImGui::InputText("input", buffer, buffSize);
-    if (ImGui::Button("enter command"))
-    {
-		ReadCommand();
-    }
-
-    ImGui::End();
+			// add new output to last line
+			if (i + 1 == outputLineCount)
+			{
+				outputBuffer[currLineIndex] = (j < output.size() ? output[j] : ' ');
+			}
+		}
+	}
 }
 
-void Console::ClearBuffer()
+void Console::Draw()
 {
-	for (size_t i = 0; i < buffSize; i++)
-		buffer[i] = '\0';
+	ImGui::Begin(windowLabel);
+
+	ImGui::Text(outputBuffer);
+
+	ImGui::InputText("input", inputBuffer, inputBufferSize);
+	if (ImGui::Button("enter command"))
+	{
+		ReadCommand();
+	}
+
+	ImGui::End();
+}
+
+void Console::ClearInputBuffer()
+{
+	for (size_t i = 0; i < inputBufferSize+1; i++)
+		inputBuffer[i] = '\0';
+}
+
+void Console::ClearOutputBuffer()
+{
+	for (size_t i = 0; i < outputLineCount; i++)
+	{
+		for (size_t j = 0; j < outputLineSize; j++)
+		{
+			size_t index = i * outputLineSize + j;
+			outputBuffer[index] = (j + 1 < outputLineSize ? ' ' : '\n');
+		}
+	}
+
+	outputBuffer[outputLineCount * outputLineSize] = '\0';
 }
 
 void Console::ReadCommand()
@@ -46,9 +90,9 @@ void Console::ReadCommand()
 	std::string commandName;
 	std::string commandArg;
 
-	for (size_t i = 0; i < buffSize && buffer[i] != '\0'; i++)
+	for (size_t i = 0; i < inputBufferSize && inputBuffer[i] != '\0'; i++)
 	{
-		char c = buffer[i];
+		char c = inputBuffer[i];
 		if (!hasName && c == ' ')
 		{
 			hasName = true;
@@ -68,5 +112,6 @@ void Console::ReadCommand()
 	else
 		commands[commandName](commandArg);
 
-	ClearBuffer();
+	ClearInputBuffer();
+}
 }

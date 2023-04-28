@@ -15,6 +15,7 @@ ClientApp::ClientApp() :
     console(nullptr),
     client(nullptr),
     currentTimeMillis(0),
+    timeDiffMillis(0),
     hasReceivedSpaceShip(false),
     controlledShipId(0),
     controlledShip(nullptr),
@@ -56,7 +57,7 @@ bool ClientApp::Open()
         return false;
 
     // setup console commands
-    this->console = new Console("console", 128);
+    this->console = new Game::Console("console", 128, 128, 10);
     this->console->SetCommand("client", [this](const std::string& arg)
     {
         if (this->client != nullptr)
@@ -84,6 +85,10 @@ bool ClientApp::Open()
             delete this->client;
             this->client = nullptr;
         }
+        else
+        {
+            this->console->AddOutput("[INFO] client created, waiting for server...");
+        }
     });
     this->console->SetCommand("msg", [this](const std::string& arg)
     {
@@ -96,6 +101,7 @@ bool ClientApp::Open()
         builder.Finish(packetWrapper);
 
         this->client->SendData(builder.GetBufferPointer(), builder.GetSize(), this->client->server);
+        this->console->AddOutput("[MESSAGE] you: " + arg);
     });
 
     // setup space ships and lasers
@@ -205,7 +211,9 @@ void ClientApp::Run()
     while (this->window->IsOpen())
     {
         auto timeStart = std::chrono::steady_clock::now();
-        this->currentTimeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(timeStart.time_since_epoch()).count();
+        auto now = std::chrono::system_clock::now();
+        auto duration = now.time_since_epoch();
+        this->currentTimeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
 
         glClear(GL_DEPTH_BUFFER_BIT);
         glEnable(GL_DEPTH_TEST);
@@ -263,12 +271,12 @@ void ClientApp::Exit()
 
 void ClientApp::OnServerConnect()
 {
-    printf("server connected\n");
+    this->console->AddOutput("[INFO] server connected");
 }
 
 void ClientApp::OnServerDisconnect()
 {
-    printf("server disconnected\n");
+    this->console->AddOutput("[INFO] server disconnected");
 
     // remove other ships
     for (auto& spaceShip : this->spaceShips)
@@ -295,6 +303,16 @@ void ClientApp::RenderUI()
     if (this->window->IsOpen())
     {
         this->console->Draw();
+
+        if (this->controlledShip != nullptr)
+        {
+            float speed = this->controlledShip->currentSpeed;
+            std::string str = "SPEED: " + std::to_string(speed);
+            glm::vec3 pos = this->controlledShip->position + this->controlledShip->orientation * glm::vec3(0.f, -2.f, 0.f);
+            glm::vec4 col = glm::mix(glm::vec4(1.f, 1.f, 1.f, 1.f), glm::vec4(1.0f, 0.2f, 0.2f, 1.f), speed / this->controlledShip->boostSpeed);
+            Debug::DrawDebugText(str.c_str(), pos, col);
+        }
+
         Debug::DispatchDebugTextDrawing();
     }
 }
@@ -414,6 +432,9 @@ void ClientApp::HandleMessage_ClientConnect(const Protocol::PacketWrapper* packe
 {
     const Protocol::ClientConnectS2C* inPacket = static_cast<const Protocol::ClientConnectS2C*>(packet->packet());
     this->controlledShipId = inPacket->uuid();
+    uint64 serverTime = inPacket->time();
+    this->timeDiffMillis = this->currentTimeMillis - serverTime;
+
     this->hasReceivedSpaceShip = true;
 }
 
@@ -540,7 +561,9 @@ void ClientApp::HandleMessage_DespawnLaser(const Protocol::PacketWrapper* packet
 void ClientApp::HandleMessage_Text(const Protocol::PacketWrapper* packet)
 {
     const Protocol::TextS2C* inPacket = static_cast<const Protocol::TextS2C*>(packet->packet());
-    printf("[MESSAGE] %s\n", inPacket->text()->c_str());
+    std::string msg = "[MESSAGE] other: ";
+    msg += inPacket->text()->c_str();
+    this->console->AddOutput(msg);
 }
 
 
@@ -622,7 +645,7 @@ void ClientApp::UpdateSpaceShipData(const glm::vec3& position, const glm::vec3& 
 
 void ClientApp::SpawnLaser(const glm::vec3& origin, const glm::quat& orientation, uint32 spaceShipId, uint64 spawnTimeMillis, uint32 laserId)
 {
-    Game::Laser* laser = new Game::Laser(origin, orientation, spaceShipId, spawnTimeMillis, laserId);
+    Game::Laser* laser = new Game::Laser(origin, orientation, spaceShipId, spawnTimeMillis + this->timeDiffMillis, laserId);
     this->lasers.push_back(laser);
 }
 

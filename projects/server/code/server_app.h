@@ -32,7 +32,7 @@ private:
 	void RenderUI();
 	void UpdateNetwork();
 	void UpdateAndDrawSpaceShips(float deltaTime);
-	void UpdateAndDrawLasers(uint64 currentTimeMillis);
+	void UpdateAndDrawLasers();
 
 	// unpack messages from client
 	void PackPlayer(Game::SpaceShip* spaceShip, Protocol::Player& p_player);
@@ -51,7 +51,7 @@ private:
 	void DespawnLaser(size_t index);
 
 	Display::Window* window;
-	Console* console;
+	Game::Console* console;
 	Game::Server* server;
 	uint64 currentTimeMillis;
 

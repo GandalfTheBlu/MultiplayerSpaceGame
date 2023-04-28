@@ -56,6 +56,7 @@ table PacketWrapper {
 
 table ClientConnectS2C {
 	uuid:uint32;
+	time:uint64;
 }
 
 table GameStateS2C {

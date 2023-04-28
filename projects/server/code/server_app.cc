@@ -60,7 +60,7 @@ bool ServerApp::Open()
 		return false;
 
 	// setup console commands
-    this->console = new Console("console", 128);
+    this->console = new Game::Console("console", 128, 128, 10);
 	this->console->SetCommand("server", [this](const std::string& arg)
 	{
         if (this->server != nullptr)
@@ -82,6 +82,10 @@ bool ServerApp::Open()
             delete this->server;
             this->server = nullptr;
         }
+        else
+        {
+            this->console->AddOutput("[INFO] server created");
+        }
 	});
     this->console->SetCommand("msg", [this](const std::string& arg)
     {
@@ -94,6 +98,7 @@ bool ServerApp::Open()
         builder.Finish(packetWrapper);
 
         this->server->BroadcastData(builder.GetBufferPointer(), builder.GetSize());
+        this->console->AddOutput("[MESSAGE] you: " + arg);
     });
 
 	// setup space ships and lasers
@@ -101,7 +106,7 @@ bool ServerApp::Open()
     this->spaceShipModel = Render::LoadModel("assets/space/spaceship.glb");
     this->spaceShipCollisionRadiusSquared = 2.f * 2.f;
     this->laserModel = Render::LoadModel("assets/space/laser.glb");
-    this->laserMaxTime = 2.f;
+    this->laserMaxTime = 3.f;
     this->laserSpeed = 20.f;
 
     // load all resources
@@ -206,7 +211,9 @@ void ServerApp::Run()
     while (this->window->IsOpen())
     {
         auto timeStart = std::chrono::steady_clock::now();
-        this->currentTimeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(timeStart.time_since_epoch()).count();
+        auto now = std::chrono::system_clock::now();
+        auto duration = now.time_since_epoch();
+        this->currentTimeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
 
         glClear(GL_DEPTH_BUFFER_BIT);
         glEnable(GL_DEPTH_TEST);
@@ -215,7 +222,7 @@ void ServerApp::Run()
 
         this->window->Update();
 
-        this->UpdateAndDrawLasers(this->currentTimeMillis);
+        this->UpdateAndDrawLasers();
         this->UpdateAndDrawSpaceShips(dt);
         this->UpdateNetwork();
 
@@ -297,7 +304,7 @@ void ServerApp::Exit()
 
 void ServerApp::OnClientConnect(ENetPeer* client)
 {
-    printf("client connected\n");
+    this->console->AddOutput("[INFO] client connected");
     this->SpawnSpaceShip(client);
     this->SendGameState(client);
     this->SendClientConnect(client);
@@ -305,7 +312,7 @@ void ServerApp::OnClientConnect(ENetPeer* client)
 
 void ServerApp::OnClientDisconnect(ENetPeer* client)
 {
-    printf("client disconnected\n");
+    this->console->AddOutput("[INFO] client disconnected");
     this->DespawnSpaceShip(client);
 }
 
@@ -410,12 +417,12 @@ void ServerApp::UpdateAndDrawSpaceShips(float deltaTime)
     }
 }
 
-void ServerApp::UpdateAndDrawLasers(uint64 currentTimeMillis)
+void ServerApp::UpdateAndDrawLasers()
 {
     for (int i = (int)this->lasers.size() - 1; i >= 0; i--)
     {
         // check timeout
-        if (this->lasers[i]->GetSecondsAlive(currentTimeMillis) >= this->laserMaxTime)
+        if (this->lasers[i]->GetSecondsAlive(this->currentTimeMillis) >= this->laserMaxTime)
         {
             this->DespawnLaser(i);
             continue;
@@ -423,7 +430,7 @@ void ServerApp::UpdateAndDrawLasers(uint64 currentTimeMillis)
 
         // check space ship collision
         bool hitShip = false;
-        glm::vec3 currentPos = this->lasers[i]->GetCurrentPosition(currentTimeMillis, this->laserSpeed);
+        glm::vec3 currentPos = this->lasers[i]->GetCurrentPosition(this->currentTimeMillis, this->laserSpeed);
         for (auto& spaceShip : this->spaceShips)
         {
             if (spaceShip.second->id == this->lasers[i]->spaceShipId)// ignore the ship it was fired from
@@ -505,7 +512,9 @@ void ServerApp::HandleMessage_Text(ENetPeer* sender, const Protocol::PacketWrapp
     const Protocol::TextC2S* inPacket = static_cast<const Protocol::TextC2S*>(packet->packet());
 
     // print incomming text
-    printf("[MESSAGE] %s\n", inPacket->text()->c_str());
+    std::string msg = "[MESSAGE] other: ";
+    msg += inPacket->text()->c_str();
+    this->console->AddOutput(msg);
 
     // send text to all others (exluding sender)
     flatbuffers::FlatBufferBuilder builder = flatbuffers::FlatBufferBuilder();
@@ -524,6 +533,7 @@ void ServerApp::SpawnSpaceShip(ENetPeer* client)
     Game::SpaceShip* spaceShip = new Game::SpaceShip();
     spaceShip->id = this->nextSpaceShipId;
     spaceShip->position = this->spawnPoints[spawnIndex++ % 32];
+    spaceShip->orientation = glm::quatLookAt(glm::normalize(spaceShip->position), glm::vec3(0.f, 1.f, 0.f));
     this->spaceShips[client] = spaceShip;
     this->nextSpaceShipId++;
 
@@ -572,7 +582,7 @@ void ServerApp::RespawnSpaceShip(ENetPeer* client)
     Game::SpaceShip* spaceShip = this->spaceShips[client];
     spaceShip->isHit = false;
     spaceShip->position = this->spawnPoints[spawnIndex++ % 32];
-    spaceShip->orientation = glm::identity<glm::quat>();
+    spaceShip->orientation = glm::quatLookAt(glm::normalize(spaceShip->position), glm::vec3(0.f, 1.f, 0.f));
     spaceShip->linearVelocity = glm::vec3(0.f);
     this->nextSpaceShipId++;
 
@@ -616,7 +626,7 @@ void ServerApp::SendClientConnect(ENetPeer* client)
 {
     uint32 id = spaceShips[client]->id;
     flatbuffers::FlatBufferBuilder builder = flatbuffers::FlatBufferBuilder();
-    auto outPacket = Protocol::CreateClientConnectS2C(builder, id);
+    auto outPacket = Protocol::CreateClientConnectS2C(builder, id, this->currentTimeMillis);
     auto packetWrapper = Protocol::CreatePacketWrapper(builder, Protocol::PacketType_ClientConnectS2C, outPacket.Union());
     builder.Finish(packetWrapper);
     this->server->SendData(builder.GetBufferPointer(), builder.GetSize(), client);

@@ -59,9 +59,10 @@ private:
 	void DespawnLaser(uint32 laserId);
 
 	Display::Window* window;
-	Console* console;
+	Game::Console* console;
 	Game::Client* client;
 	uint64 currentTimeMillis;
+	uint64 timeDiffMillis;
 
 	std::vector<std::tuple<Render::ModelId, Physics::ColliderId, glm::mat4>> asteroids;
 
