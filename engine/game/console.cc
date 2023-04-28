@@ -54,8 +54,11 @@ void Console::Draw()
 	ImGui::Begin(windowLabel);
 
 	ImGui::Text(outputBuffer);
-
-	ImGui::InputText("input", inputBuffer, inputBufferSize);
+	
+	if (ImGui::InputText("input", inputBuffer, inputBufferSize, ImGuiInputTextFlags_EnterReturnsTrue))
+	{
+		ReadCommand();
+	}
 	if (ImGui::Button("enter command"))
 	{
 		ReadCommand();
