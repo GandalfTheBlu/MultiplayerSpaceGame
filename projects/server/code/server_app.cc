@@ -20,7 +20,7 @@ ServerApp::ServerApp():
     spaceShipCollisionRadiusSquared(0.f),
     laserModel(0),
     nextLaserId(0),
-    laserMaxTime(0.f),
+    laserMaxTimeMillis(0),
     laserSpeed(0.f),
     laserCooldown(0.1f),
     spectate(false),
@@ -97,7 +97,7 @@ bool ServerApp::Open()
         auto packetWrapper = Protocol::CreatePacketWrapper(builder, Protocol::PacketType_TextS2C, outPacket.Union());
         builder.Finish(packetWrapper);
 
-        this->server->BroadcastData(builder.GetBufferPointer(), builder.GetSize());
+        this->server->BroadcastData(builder.GetBufferPointer(), builder.GetSize(), ENET_PACKET_FLAG_RELIABLE);
         this->console->AddOutput("[MESSAGE] you: " + arg);
     });
 
@@ -106,7 +106,7 @@ bool ServerApp::Open()
     this->spaceShipModel = Render::LoadModel("assets/space/spaceship.glb");
     this->spaceShipCollisionRadiusSquared = 2.f * 2.f;
     this->laserModel = Render::LoadModel("assets/space/laser.glb");
-    this->laserMaxTime = 3.f;
+    this->laserMaxTimeMillis = 3000;
     this->laserSpeed = 20.f;
 
     // load all resources
@@ -422,7 +422,7 @@ void ServerApp::UpdateAndDrawLasers()
     for (int i = (int)this->lasers.size() - 1; i >= 0; i--)
     {
         // check timeout
-        if (this->lasers[i]->GetSecondsAlive(this->currentTimeMillis) >= this->laserMaxTime)
+        if (this->lasers[i]->ShouldDespawn(this->currentTimeMillis))
         {
             this->DespawnLaser(i);
             continue;
@@ -480,7 +480,7 @@ void ServerApp::PackLaser(Game::Laser* laser, Protocol::Laser& p_laser)
 {
     auto p_origin = Protocol::Vec3(laser->origin.x, laser->origin.y, laser->origin.z);
     auto p_orientation = Protocol::Vec4(laser->orientation.x, laser->orientation.y, laser->orientation.z, laser->orientation.w);
-    p_laser = Protocol::Laser(laser->id, laser->spawnTimeMillis, 0, p_origin, p_orientation);
+    p_laser = Protocol::Laser(laser->id, laser->spawnTimeMillis, laser->despawnTimeMillis, p_origin, p_orientation);
 }
 
 void ServerApp::HandleMessage_Input(ENetPeer* sender, const Protocol::PacketWrapper* packet)
@@ -521,7 +521,7 @@ void ServerApp::HandleMessage_Text(ENetPeer* sender, const Protocol::PacketWrapp
     auto outPacket = Protocol::CreateTextS2CDirect(builder, inPacket->text()->c_str());
     auto packetWrapper = Protocol::CreatePacketWrapper(builder, Protocol::PacketType_TextS2C, outPacket.Union());
     builder.Finish(packetWrapper);
-    this->server->BroadcastData(builder.GetBufferPointer(), builder.GetSize(), sender);
+    this->server->BroadcastData(builder.GetBufferPointer(), builder.GetSize(), ENET_PACKET_FLAG_RELIABLE, sender);
 }
 
 
@@ -545,7 +545,7 @@ void ServerApp::SpawnSpaceShip(ENetPeer* client)
     auto packetWrapper = Protocol::CreatePacketWrapper(builder, Protocol::PacketType_SpawnPlayerS2C, outPacket.Union());
     builder.Finish(packetWrapper);
     // exlude client, since it will receive everything in the gameState-message
-    this->server->BroadcastData(builder.GetBufferPointer(), builder.GetSize(), client);
+    this->server->BroadcastData(builder.GetBufferPointer(), builder.GetSize(), ENET_PACKET_FLAG_RELIABLE, client);
 }
 
 void ServerApp::UpdateSpaceShipData(ENetPeer* client)
@@ -559,7 +559,7 @@ void ServerApp::UpdateSpaceShipData(ENetPeer* client)
     auto outPacket = Protocol::CreateUpdatePlayerS2C(builder, this->currentTimeMillis, &p_player);
     auto packetWrapper = Protocol::CreatePacketWrapper(builder, Protocol::PacketType_UpdatePlayerS2C, outPacket.Union());
     builder.Finish(packetWrapper);
-    this->server->BroadcastData(builder.GetBufferPointer(), builder.GetSize());
+    this->server->BroadcastData(builder.GetBufferPointer(), builder.GetSize(), ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
 }
 
 void ServerApp::DespawnSpaceShip(ENetPeer* client)
@@ -573,7 +573,7 @@ void ServerApp::DespawnSpaceShip(ENetPeer* client)
     auto outPacket = Protocol::CreateDespawnPlayerS2C(builder, id);
     auto packetWrapper = Protocol::CreatePacketWrapper(builder, Protocol::PacketType_DespawnPlayerS2C, outPacket.Union());
     builder.Finish(packetWrapper);
-    this->server->BroadcastData(builder.GetBufferPointer(), builder.GetSize(), client);
+    this->server->BroadcastData(builder.GetBufferPointer(), builder.GetSize(), ENET_PACKET_FLAG_RELIABLE, client);
 }
 
 void ServerApp::RespawnSpaceShip(ENetPeer* client)
@@ -597,7 +597,7 @@ void ServerApp::RespawnSpaceShip(ENetPeer* client)
     auto outPacket = Protocol::CreateTeleportPlayerS2C(builder, this->currentTimeMillis, &p_player);
     auto packetWrapper = Protocol::CreatePacketWrapper(builder, Protocol::PacketType_TeleportPlayerS2C, outPacket.Union());
     builder.Finish(packetWrapper);
-    this->server->BroadcastData(builder.GetBufferPointer(), builder.GetSize());
+    this->server->BroadcastData(builder.GetBufferPointer(), builder.GetSize(), ENET_PACKET_FLAG_RELIABLE);
 }
 
 void ServerApp::SendGameState(ENetPeer* client)
@@ -623,7 +623,7 @@ void ServerApp::SendGameState(ENetPeer* client)
     auto outPacket = Protocol::CreateGameStateS2CDirect(builder, &p_players, &p_lasers);
     auto packetWrapper = Protocol::CreatePacketWrapper(builder, Protocol::PacketType_GameStateS2C, outPacket.Union());
     builder.Finish(packetWrapper);
-    this->server->SendData(builder.GetBufferPointer(), builder.GetSize(), client);
+    this->server->SendData(builder.GetBufferPointer(), builder.GetSize(), client, ENET_PACKET_FLAG_RELIABLE);
 }
 
 void ServerApp::SendClientConnect(ENetPeer* client)
@@ -633,12 +633,12 @@ void ServerApp::SendClientConnect(ENetPeer* client)
     auto outPacket = Protocol::CreateClientConnectS2C(builder, id, this->currentTimeMillis);
     auto packetWrapper = Protocol::CreatePacketWrapper(builder, Protocol::PacketType_ClientConnectS2C, outPacket.Union());
     builder.Finish(packetWrapper);
-    this->server->SendData(builder.GetBufferPointer(), builder.GetSize(), client);
+    this->server->SendData(builder.GetBufferPointer(), builder.GetSize(), client, ENET_PACKET_FLAG_RELIABLE);
 }
 
 void ServerApp::SpawnLaser(const glm::vec3& origin, const glm::quat& orientation, uint32 spaceShipId, uint64 currentTimeMillis)
 {
-    Game::Laser* laser = new Game::Laser(origin, orientation, spaceShipId, currentTimeMillis, this->nextLaserId);
+    Game::Laser* laser = new Game::Laser(origin, orientation, spaceShipId, currentTimeMillis, currentTimeMillis + this->laserMaxTimeMillis, this->nextLaserId);
     this->lasers.push_back(laser);
     this->nextLaserId++;
 
@@ -649,7 +649,7 @@ void ServerApp::SpawnLaser(const glm::vec3& origin, const glm::quat& orientation
     auto outPacket = Protocol::CreateSpawnLaserS2C(builder, &p_laser);
     auto packetWrapper = Protocol::CreatePacketWrapper(builder, Protocol::PacketType_SpawnLaserS2C, outPacket.Union());
     builder.Finish(packetWrapper);
-    this->server->BroadcastData(builder.GetBufferPointer(), builder.GetSize());
+    this->server->BroadcastData(builder.GetBufferPointer(), builder.GetSize(), ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
 }
 
 void ServerApp::DespawnLaser(size_t index)
@@ -663,5 +663,5 @@ void ServerApp::DespawnLaser(size_t index)
     auto outPacket = Protocol::CreateDespawnLaserS2C(builder, id);
     auto packetWrapper = Protocol::CreatePacketWrapper(builder, Protocol::PacketType_DespawnLaserS2C, outPacket.Union());
     builder.Finish(packetWrapper);
-    this->server->BroadcastData(builder.GetBufferPointer(), builder.GetSize());
+    this->server->BroadcastData(builder.GetBufferPointer(), builder.GetSize(), ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
 }

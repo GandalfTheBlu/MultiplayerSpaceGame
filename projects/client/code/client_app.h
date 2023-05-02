@@ -34,7 +34,7 @@ private:
 
 	// unpack messages from server
 	void UnpackPlayer(const Protocol::Player* player, glm::vec3& position, glm::vec3& velocity, glm::vec3& acceleration, glm::quat& orientation, uint32& id);
-	void UnpackLaser(const Protocol::Laser* laser, glm::vec3& origin, glm::quat& orientation, uint64& spawnTime, uint32& id);
+	void UnpackLaser(const Protocol::Laser* laser, glm::vec3& origin, glm::quat& orientation, uint64& spawnTime, uint64& despawnTime, uint32& id);
 	void HandleMessage_ClientConnect(const Protocol::PacketWrapper* packet);
 	void HandleMessage_GameState(const Protocol::PacketWrapper* packet);
 	void HandleMessage_SpawnPlayer(const Protocol::PacketWrapper* packet);
@@ -55,8 +55,9 @@ private:
 	void SpawnSpaceShip(const glm::vec3& position, const glm::quat& orientation, const glm::vec3& velocity, uint32 spaceShipId);
 	void DespawnSpaceShip(uint32 spaceShipId);
 	void UpdateSpaceShipData(const glm::vec3& position, const glm::vec3& velocity, const glm::vec3& acceleration, const glm::quat& orientation, uint32 spaceShipId, bool hardReset, uint64 timeStamp);
-	void SpawnLaser(const glm::vec3& origin, const glm::quat& orientation, uint32 spaceShipId, uint64 spawnTimeMillis, uint32 laserId);
+	void SpawnLaser(const glm::vec3& origin, const glm::quat& orientation, uint32 spaceShipId, uint64 spawnTimeMillis, uint64 despawnTimeMillis, uint32 laserId);
 	void DespawnLaser(uint32 laserId);
+	void DespawnLaserDirect(size_t laserIndex);
 
 	Display::Window* window;
 	Game::Console* console;

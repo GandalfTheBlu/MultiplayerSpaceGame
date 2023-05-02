@@ -41,7 +41,7 @@ public:
 
 	void Update();
 	bool PopDataStack(Data& outData);
-	void SendData(void* data, size_t byteSize, ENetPeer* peer);
+	void SendData(void* data, size_t byteSize, ENetPeer* peer, ENetPacketFlag packetFlag);
 
 protected:
 	virtual void OnConnect(ENetPeer* peer) = 0;
@@ -63,7 +63,7 @@ public:
 	virtual ~Server() override;
 
 	bool Initialize(const char* serverIP, enet_uint16 port, ConnectionEvent _onClientConnect, ConnectionEvent _onClientDisconnect);
-	void BroadcastData(void* data, size_t byteSize, ENetPeer* exlude = nullptr);
+	void BroadcastData(void* data, size_t byteSize, ENetPacketFlag packetFlag, ENetPeer* exlude = nullptr);
 
 private:
 	virtual void OnConnect(ENetPeer* peer) override;

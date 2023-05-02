@@ -29,7 +29,7 @@ InputData::InputData()
 }
 
 SpaceShip::SpaceShip() :
-    drBody(0.1f)// server latency
+    drBody(0.2f)// server latency
 {
     uint32_t numParticles = 2048;
     this->particleEmitterLeft = new ParticleEmitter(numParticles);

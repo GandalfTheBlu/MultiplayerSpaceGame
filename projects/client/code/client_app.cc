@@ -100,7 +100,7 @@ bool ClientApp::Open()
         auto packetWrapper = Protocol::CreatePacketWrapper(builder, Protocol::PacketType_TextC2S, outPacket.Union());
         builder.Finish(packetWrapper);
 
-        this->client->SendData(builder.GetBufferPointer(), builder.GetSize(), this->client->server);
+        this->client->SendData(builder.GetBufferPointer(), builder.GetSize(), this->client->server, ENET_PACKET_FLAG_RELIABLE);
         this->console->AddOutput("[MESSAGE] you: " + arg);
     });
 
@@ -328,7 +328,7 @@ void ClientApp::UpdateNetwork()
     auto outPacket = Protocol::CreateInputC2S(builder, this->currentTimeMillis, inputData);
     auto packetWrapper = Protocol::CreatePacketWrapper(builder, Protocol::PacketType_InputC2S, outPacket.Union());
     builder.Finish(packetWrapper);
-    this->client->SendData(builder.GetBufferPointer(), builder.GetSize(), this->client->server);
+    this->client->SendData(builder.GetBufferPointer(), builder.GetSize(), this->client->server, ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
 
 
     // read data from server
@@ -394,8 +394,14 @@ void ClientApp::UpdateAndDrawSpaceShips(float deltaTime)
 
 void ClientApp::UpdateAndDrawLasers()
 {
-    for (size_t i = 0; i < this->lasers.size(); i++)
+    for (int i = (int)this->lasers.size()-1; i>=0; i--)
     {
+        if (this->lasers[i]->ShouldDespawn(this->currentTimeMillis))
+        {
+            this->DespawnLaserDirect(i);
+            continue;
+        }
+
         Render::RenderDevice::Draw(this->laserModel, this->lasers[i]->GetLocalToWorld(this->currentTimeMillis, this->laserSpeed));
     }
 }
@@ -417,11 +423,12 @@ void ClientApp::UnpackPlayer(const Protocol::Player* player, glm::vec3& position
     orientation = glm::quat(p_dir.w(), p_dir.x(), p_dir.y(), p_dir.z());
 }
 
-void ClientApp::UnpackLaser(const Protocol::Laser* laser, glm::vec3& origin, glm::quat& orientation, uint64& spawnTime, uint32& id)
+void ClientApp::UnpackLaser(const Protocol::Laser* laser, glm::vec3& origin, glm::quat& orientation, uint64& spawnTime, uint64& despawnTime, uint32& id)
 {
     auto& p_origin = laser->origin();
     auto& p_dir = laser->direction();
     spawnTime = laser->start_time();
+    despawnTime = laser->end_time();
     id = laser->uuid();
 
     origin = glm::vec3(p_origin.x(), p_origin.y(), p_origin.z());
@@ -472,13 +479,14 @@ void ClientApp::HandleMessage_GameState(const Protocol::PacketWrapper* packet)
         glm::vec3 origin;
         glm::quat orientation;
         uint64 spawnTime;
+        uint64 despawnTime;
         uint32 id;
-        this->UnpackLaser(p_laser, origin, orientation, spawnTime, id);
+        this->UnpackLaser(p_laser, origin, orientation, spawnTime, despawnTime, id);
 
         // laser is new and must be spawned
         if (this->LaserIndex(id) >= this->lasers.size())
         {
-            this->SpawnLaser(origin, orientation, 0, spawnTime, id);
+            this->SpawnLaser(origin, orientation, 0, spawnTime, despawnTime, id);
         }
     }
 }
@@ -542,13 +550,14 @@ void ClientApp::HandleMessage_SpawnLaser(const Protocol::PacketWrapper* packet)
     glm::vec3 origin;
     glm::quat orientation;
     uint64 spawnTime;
+    uint64 despawnTime;
     uint32 id;
-    this->UnpackLaser(p_laser, origin, orientation, spawnTime, id);
+    this->UnpackLaser(p_laser, origin, orientation, spawnTime, despawnTime, id);
 
     // laser is new and must be spawned
     if (this->LaserIndex(id) >= this->lasers.size())
     {
-        this->SpawnLaser(origin, orientation, 0, spawnTime, id);
+        this->SpawnLaser(origin, orientation, 0, spawnTime, despawnTime, id);
     }
 }
 
@@ -643,9 +652,9 @@ void ClientApp::UpdateSpaceShipData(const glm::vec3& position, const glm::vec3& 
 }
 
 
-void ClientApp::SpawnLaser(const glm::vec3& origin, const glm::quat& orientation, uint32 spaceShipId, uint64 spawnTimeMillis, uint32 laserId)
+void ClientApp::SpawnLaser(const glm::vec3& origin, const glm::quat& orientation, uint32 spaceShipId, uint64 spawnTimeMillis, uint64 despawnTimeMillis, uint32 laserId)
 {
-    Game::Laser* laser = new Game::Laser(origin, orientation, spaceShipId, spawnTimeMillis + this->timeDiffMillis, laserId);
+    Game::Laser* laser = new Game::Laser(origin, orientation, spaceShipId, spawnTimeMillis + this->timeDiffMillis, despawnTimeMillis + this->timeDiffMillis, laserId);
     this->lasers.push_back(laser);
 }
 
@@ -654,7 +663,16 @@ void ClientApp::DespawnLaser(uint32 laserId)
     size_t index = 0;
     for (; index < this->lasers.size() && this->lasers[index]->id != laserId; index++);
 
+    if (index >= this->lasers.size())
+        return;
+
     delete this->lasers[index];
     this->lasers.erase(this->lasers.begin() + index);
+}
+
+void ClientApp::DespawnLaserDirect(size_t laserIndex)
+{
+    delete this->lasers[laserIndex];
+    this->lasers.erase(this->lasers.begin() + laserIndex);
 }
 

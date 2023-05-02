@@ -89,7 +89,7 @@ bool Host::PopDataStack(Data& outData)
 	return true;
 }
 
-void Host::SendData(void* data, size_t byteSize, ENetPeer* peer)
+void Host::SendData(void* data, size_t byteSize, ENetPeer* peer, ENetPacketFlag packetFlag)
 {
 	if (peer == nullptr)
 	{
@@ -97,7 +97,7 @@ void Host::SendData(void* data, size_t byteSize, ENetPeer* peer)
 		return;
 	}
 
-	ENetPacket* packet = enet_packet_create(data, byteSize, ENET_PACKET_FLAG_RELIABLE);
+	ENetPacket* packet = enet_packet_create(data, byteSize, packetFlag);
 	enet_peer_send(peer, 0, packet);
 	enet_host_flush(host);
 }
@@ -135,9 +135,9 @@ bool Server::Initialize(const char* serverIP, enet_uint16 port, ConnectionEvent 
 	return true;
 }
 
-void Server::BroadcastData(void* data, size_t byteSize, ENetPeer* exlude)
+void Server::BroadcastData(void* data, size_t byteSize, ENetPacketFlag packetFlag, ENetPeer* exlude)
 {
-	ENetPacket* packet = enet_packet_create(data, byteSize, ENET_PACKET_FLAG_RELIABLE);
+	ENetPacket* packet = enet_packet_create(data, byteSize, packetFlag);
 
 	if (exlude == nullptr)
 	{

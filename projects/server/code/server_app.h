@@ -66,7 +66,7 @@ private:
 	std::vector<Game::Laser*> lasers;
 	Render::ModelId laserModel;
 	uint32 nextLaserId;
-	float laserMaxTime;
+	uint64 laserMaxTimeMillis;
 	float laserSpeed;
 	float laserCooldown;
 
